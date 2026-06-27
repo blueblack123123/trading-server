@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, status
 
 from app.core.config import settings
 from app.modules.admin.schemas import MarketItemConfig
@@ -23,7 +23,7 @@ def check_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
 
 @router.get("/market-items-config")
 async def get_market_items_config(
-    _: None = check_admin_key(),
+    _: None = Depends(check_admin_key),
 ) -> list[MarketItemConfig]:
     return MarketItemsConfigService().get_config()
 
@@ -31,7 +31,7 @@ async def get_market_items_config(
 @router.put("/market-items-config")
 async def update_market_items_config(
     items: list[MarketItemConfig],
-    _: None = check_admin_key(),
+    _: None = Depends(check_admin_key),
 ) -> dict[str, int]:
     MarketItemsConfigService().save_config(items)
     return {"count": len(items)}
