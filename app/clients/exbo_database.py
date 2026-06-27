@@ -28,6 +28,12 @@ class ExboDatabaseClient:
             return name
 
         if isinstance(name, dict):
+            lines = name.get("lines")
+            if isinstance(lines, dict):
+                value = lines.get("ru")
+                if isinstance(value, str):
+                    return value
+
             for key in ("ru", "text", "value"):
                 value = name.get(key)
                 if isinstance(value, str):
