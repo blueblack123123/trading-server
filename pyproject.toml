@@ -1,15 +1,49 @@
 [project]
 name = "trading-server"
 version = "0.1.0"
-description = "Add your description here"
+description = "Backend for the Trading application"
 readme = "README.md"
 requires-python = ">=3.12"
+
 dependencies = [
-    "alembic>=1.18.5",
-    "asyncpg>=0.31.0",
     "fastapi>=0.138.1",
-    "httpx>=0.28.1",
-    "pydantic-settings>=2.14.2",
-    "sqlalchemy>=2.0.51",
     "uvicorn[standard]>=0.49.0",
+
+    "httpx>=0.28.1",
+
+    "sqlalchemy>=2.0.51",
+    "asyncpg>=0.31.0",
+    "alembic>=1.18.5",
+
+    "pydantic-settings>=2.14.2",
 ]
+
+[dependency-groups]
+dev = [
+    "mypy>=1.19.1",
+    "pytest>=9.0.2",
+    "ruff>=0.14.10",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "F",
+    "I",
+    "UP",
+    "B",
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = []
