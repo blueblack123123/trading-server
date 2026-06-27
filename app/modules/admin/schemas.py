@@ -1,7 +1,17 @@
-from pydantic import BaseModel, Field
+from enum import IntEnum
+
+from pydantic import BaseModel
+
+
+class MarketStatus(IntEnum):
+    AUTO = 0
+    HOT = 1
+    NORMAL = 2
+    RARE = 3
+    IGNORE = 4
 
 
 class MarketItemConfig(BaseModel):
     id: str
     name: str
-    status: int = Field(ge=0, le=4)
+    status: MarketStatus = MarketStatus.AUTO

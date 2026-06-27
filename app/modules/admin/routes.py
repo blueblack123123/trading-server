@@ -35,3 +35,11 @@ async def update_market_items_config(
 ) -> dict[str, int]:
     MarketItemsConfigService().save_config(items)
     return {"count": len(items)}
+
+
+@router.post("/sync-market-items")
+async def sync_market_items(
+    _: None = Depends(check_admin_key),
+) -> dict[str, int]:
+    items = await MarketItemsConfigService().sync_items()
+    return {"count": len(items)}
