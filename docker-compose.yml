@@ -1,0 +1,9 @@
+services:
+  api:
+    build: .
+    container_name: trading-api
+
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
