@@ -11,6 +11,7 @@ class Settings(BaseSettings):
 
     admin_key: str = ""
     market_items_config_path: str = "config/market_items.json"
+    exbo_database_path: str = "/app/external/stalzone-database"
 
 
 @lru_cache

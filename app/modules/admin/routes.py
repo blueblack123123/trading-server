@@ -7,7 +7,9 @@ from app.modules.admin.service import MarketItemsConfigService
 router = APIRouter()
 
 
-def check_admin_key(x_admin_key: str | None = Header(default=None)) -> None:
+def check_admin_key(
+    x_admin_key: str | None = Header(default=None),
+) -> None:
     if not settings.admin_key:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -34,12 +36,18 @@ async def update_market_items_config(
     _: None = Depends(check_admin_key),
 ) -> dict[str, int]:
     MarketItemsConfigService().save_config(items)
-    return {"count": len(items)}
+
+    return {
+        "count": len(items),
+    }
 
 
 @router.post("/sync-market-items")
 async def sync_market_items(
     _: None = Depends(check_admin_key),
 ) -> dict[str, int]:
-    items = await MarketItemsConfigService().sync_items()
-    return {"count": len(items)}
+    items = MarketItemsConfigService().sync_items()
+
+    return {
+        "count": len(items),
+    }
