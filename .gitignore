@@ -18,3 +18,8 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+config/market_items.json
+
+# Local research data
+data_samples/

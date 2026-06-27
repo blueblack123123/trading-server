@@ -9,6 +9,9 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
+    admin_key: str = ""
+    market_items_config_path: str = "config/market_items.json"
+
 
 @lru_cache
 def get_settings() -> Settings:
