@@ -245,30 +245,12 @@ class HistoryWorker:
         item: MarketItem,
         claimed_state: LotPollState,
     ) -> None:
-        records_by_fingerprint: dict[str, LotRecord] = {}
-        offset = 0
-        total_lots = 0
-        complete_snapshot = False
-
         try:
-            for _ in range(settings.lots_max_pages_per_poll):
-                await self._rate_limiter.acquire()
-                payload = await client.get_available_lots(
-                    item_id=item.id,
-                    limit=settings.history_page_size,
-                    offset=offset,
-                )
-                page_records, total = _parse_lots_page(item.id, payload)
-                total_lots = total
-                records_by_fingerprint.update(
-                    (record.fingerprint, record) for record in page_records
-                )
-                offset += len(page_records)
-                if offset >= total:
-                    complete_snapshot = True
-                    break
-                if not page_records:
-                    break
+            await self._rate_limiter.acquire()
+            payload = await client.get_available_lots(item_id=item.id)
+            records, total_lots = _parse_lots_page(item.id, payload)
+            records_by_fingerprint = {record.fingerprint: record for record in records}
+            complete_snapshot = len(records_by_fingerprint) >= total_lots
 
             await self._save_lots_success(
                 item,
