@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     history_extremely_rare_interval_seconds: int = 604800
     history_worker_idle_seconds: float = 2.0
     lots_cache_ttl_seconds: int = 15
-    lots_max_pages_per_request: int = 50
 
 
 @lru_cache

@@ -1,6 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,6 +28,7 @@ class ItemHistoryResponse(BaseModel):
 
 class ActiveLot(BaseModel):
     fingerprint: str
+    item_id: str
     amount: int
     start_price: Decimal
     current_price: Decimal
@@ -35,6 +36,7 @@ class ActiveLot(BaseModel):
     start_time: datetime
     end_time: datetime
     quality: int | None
+    additional: dict[str, Any]
     first_seen_at: datetime
     last_seen_at: datetime
 

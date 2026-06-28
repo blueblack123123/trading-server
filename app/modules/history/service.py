@@ -138,13 +138,11 @@ def _as_utc(value: datetime) -> datetime:
 async def read_active_lots(
     session: AsyncSession,
     item_id: str,
-    quality: int | None,
 ) -> ActiveLotsResponse:
     state = await session.get(LotPollState, item_id)
     lots = await get_active_lots(
         session,
         item_id,
-        quality,
         state.last_success_at if state is not None else None,
     )
     return ActiveLotsResponse(
@@ -155,6 +153,7 @@ async def read_active_lots(
         lots=[
             ActiveLot(
                 fingerprint=lot.fingerprint,
+                item_id=lot.item_id,
                 amount=lot.amount,
                 start_price=lot.start_price,
                 current_price=lot.current_price,
@@ -162,6 +161,7 @@ async def read_active_lots(
                 start_time=lot.start_time,
                 end_time=lot.end_time,
                 quality=lot.quality,
+                additional=lot.additional,
                 first_seen_at=lot.first_seen_at,
                 last_seen_at=lot.last_seen_at,
             )
@@ -173,7 +173,6 @@ async def read_active_lots(
 async def get_or_refresh_active_lots(
     session: AsyncSession,
     item_id: str,
-    quality: int | None,
 ) -> ActiveLotsResponse:
     item = await session.get(MarketItem, item_id)
     if item is None:
@@ -186,7 +185,7 @@ async def get_or_refresh_active_lots(
         and state.last_success_at is not None
         and state.last_success_at >= now - timedelta(seconds=settings.lots_cache_ttl_seconds)
     ):
-        return await read_active_lots(session, item_id, quality)
+        return await read_active_lots(session, item_id)
 
     records, total, complete = await _fetch_all_lots(item_id)
     if state is None:
@@ -209,7 +208,7 @@ async def get_or_refresh_active_lots(
     state.total_lots = total
     state.snapshot_complete = complete
     await session.commit()
-    return await read_active_lots(session, item_id, quality)
+    return await read_active_lots(session, item_id)
 
 
 async def _fetch_all_lots(item_id: str) -> tuple[list[LotRecord], int, bool]:
@@ -217,7 +216,7 @@ async def _fetch_all_lots(item_id: str) -> tuple[list[LotRecord], int, bool]:
     offset = 0
     total = 0
     async with StalzoneClient() as client:
-        for _ in range(settings.lots_max_pages_per_request):
+        while offset < total or offset == 0:
             payload = await client.get_available_lots(
                 item_id=item_id,
                 limit=200,
@@ -226,9 +225,13 @@ async def _fetch_all_lots(item_id: str) -> tuple[list[LotRecord], int, bool]:
             page, total = _parse_lots_response(item_id, payload)
             records_by_fingerprint.update((record.fingerprint, record) for record in page)
             offset += len(page)
-            if offset >= total or not page:
+            if offset >= total:
                 break
-    return list(records_by_fingerprint.values()), total, offset >= total
+            if not page:
+                raise RuntimeError("Stalzone API returned an incomplete lots listing")
+    if len(records_by_fingerprint) != total:
+        raise RuntimeError("Stalzone API returned duplicate or incomplete lots")
+    return list(records_by_fingerprint.values()), total, True
 
 
 def _parse_lots_response(item_id: str, payload: Any) -> tuple[list[LotRecord], int]:

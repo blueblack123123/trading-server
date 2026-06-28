@@ -43,10 +43,9 @@ async def get_item_history(
 async def get_item_lots(
     item_id: str,
     session: Annotated[AsyncSession, Depends(get_db_session)],
-    qlt: Annotated[int | None, Query(ge=0, le=255)] = None,
 ) -> ActiveLotsResponse:
     try:
-        return await get_or_refresh_active_lots(session, item_id, qlt)
+        return await get_or_refresh_active_lots(session, item_id)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
     except httpx.HTTPStatusError as exc:
@@ -59,4 +58,9 @@ async def get_item_lots(
         raise HTTPException(
             status_code=response_status,
             detail=f"Stalzone API returned HTTP {upstream_status}",
+        ) from exc
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=str(exc),
         ) from exc

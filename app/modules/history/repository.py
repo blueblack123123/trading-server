@@ -220,7 +220,6 @@ async def compact_history(
 async def get_active_lots(
     session: AsyncSession,
     item_id: str,
-    quality: int | None,
     observed_at: datetime | None,
 ) -> Sequence[AuctionLot]:
     if observed_at is None:
@@ -229,8 +228,6 @@ async def get_active_lots(
         AuctionLot.item_id == item_id,
         AuctionLot.last_seen_at == observed_at,
     )
-    if quality is not None:
-        query = query.where(AuctionLot.quality == quality)
     result = await session.scalars(query.order_by(AuctionLot.buyout_price, AuctionLot.end_time))
     return result.all()
 

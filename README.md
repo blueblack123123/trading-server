@@ -58,8 +58,12 @@ points for older data. Explicit values are `raw`, `hour`, and `day`.
 Fetch active lots on demand (subsequent requests use the short cache):
 
 ```text
-GET /api/v1/items/{item_id}/lots?qlt=3
+GET /api/v1/items/{item_id}/lots
 ```
+
+The lots endpoint always returns the complete listing without server-side filters. Each lot
+contains prices, quality, full additional data, auction start/end time, and snapshot timestamps;
+the frontend is responsible for filtering and sorting.
 
 ## Development checks
 
