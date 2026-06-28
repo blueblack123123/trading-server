@@ -18,8 +18,8 @@ class Settings(BaseSettings):
     collector_enabled: bool = False
 
     history_hot_interval_seconds: int = 60
-    history_normal_interval_seconds: int = 1800
-    history_rare_interval_seconds: int = 28800
+    history_normal_interval_seconds: int = 3600
+    history_rare_interval_seconds: int = 43200
     history_auto_bootstrap_interval_seconds: int = 86400
     history_worker_idle_seconds: float = 2.0
 

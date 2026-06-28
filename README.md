@@ -29,8 +29,8 @@ curl -X POST http://localhost:8000/api/v1/admin/sync-market-items \
 The upstream limit defaults to five evenly spaced requests per minute. Status intervals:
 
 - `HOT`: 60 seconds;
-- `NORMAL`: 30 minutes;
-- `RARE`: 8 hours;
+- `NORMAL`: 1 hour;
+- `RARE`: 12 hours;
 - `AUTO`: starts at 24 hours and is promoted from observed sales activity;
 - `IGNORE`: disabled.
 
