@@ -30,6 +30,7 @@ class ActiveLot(BaseModel):
     fingerprint: str
     amount: int
     start_price: Decimal
+    current_price: Decimal
     buyout_price: Decimal
     start_time: datetime
     end_time: datetime

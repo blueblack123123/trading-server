@@ -51,6 +51,8 @@ class HistoryPollState(TimestampMixin, Base):
         nullable=False,
         default=list,
     )
+    backfill_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    backfill_complete: Mapped[bool] = mapped_column(nullable=False, default=False)
     last_http_status: Mapped[int | None] = mapped_column(Integer)
     consecutive_errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     activity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -108,6 +110,7 @@ class AuctionLot(TimestampMixin, Base):
     )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)
     start_price: Mapped[Decimal] = mapped_column(Numeric(24, 4), nullable=False)
+    current_price: Mapped[Decimal] = mapped_column(Numeric(24, 4), nullable=False)
     buyout_price: Mapped[Decimal] = mapped_column(Numeric(24, 4), nullable=False)
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

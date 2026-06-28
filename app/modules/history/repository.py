@@ -20,36 +20,40 @@ async def store_sales(session: AsyncSession, records: Sequence[SaleRecord]) -> i
     if not records:
         return 0
 
-    statement = (
-        insert(AuctionSale)
-        .values(
-            [
-                {
-                    "item_id": record.item_id,
-                    "sold_at": record.sold_at,
-                    "amount": record.amount,
-                    "price": record.price,
-                    "quality": record.quality,
-                    "additional": record.additional,
-                    "fingerprint": record.fingerprint,
-                }
-                for record in records
-            ]
+    inserted_count = 0
+    for start in range(0, len(records), 500):
+        chunk = records[start : start + 500]
+        statement = (
+            insert(AuctionSale)
+            .values(
+                [
+                    {
+                        "item_id": record.item_id,
+                        "sold_at": record.sold_at,
+                        "amount": record.amount,
+                        "price": record.price,
+                        "quality": record.quality,
+                        "additional": record.additional,
+                        "fingerprint": record.fingerprint,
+                    }
+                    for record in chunk
+                ]
+            )
+            .on_conflict_do_nothing(index_elements=[AuctionSale.fingerprint])
+            .returning(
+                AuctionSale.item_id,
+                AuctionSale.sold_at,
+                AuctionSale.amount,
+                AuctionSale.price,
+                AuctionSale.quality,
+            )
         )
-        .on_conflict_do_nothing(index_elements=[AuctionSale.fingerprint])
-        .returning(
-            AuctionSale.item_id,
-            AuctionSale.sold_at,
-            AuctionSale.amount,
-            AuctionSale.price,
-            AuctionSale.quality,
-        )
-    )
-    result = await session.execute(statement)
-    inserted = list(result.mappings())
+        result = await session.execute(statement)
+        inserted = list(result.mappings())
+        await _increment_aggregates(session, inserted)
+        inserted_count += len(inserted)
 
-    await _increment_aggregates(session, inserted)
-    return len(inserted)
+    return inserted_count
 
 
 async def store_lots(
@@ -72,36 +76,39 @@ async def store_lots(
     current = {record.fingerprint for record in records}
 
     if records:
-        statement = insert(AuctionLot).values(
-            [
-                {
-                    "fingerprint": record.fingerprint,
-                    "item_id": record.item_id,
-                    "amount": record.amount,
-                    "start_price": record.start_price,
-                    "buyout_price": record.buyout_price,
-                    "start_time": record.start_time,
-                    "end_time": record.end_time,
-                    "quality": record.quality,
-                    "additional": record.additional,
-                    "first_seen_at": observed_at,
-                    "last_seen_at": observed_at,
-                    "active": True,
-                }
-                for record in records
-            ]
-        )
-        await session.execute(
-            statement.on_conflict_do_update(
-                index_elements=[AuctionLot.fingerprint],
-                set_={
-                    "last_seen_at": observed_at,
-                    "disappeared_at": None,
-                    "active": True,
-                    "updated_at": func.now(),
-                },
+        for start in range(0, len(records), 500):
+            chunk = records[start : start + 500]
+            statement = insert(AuctionLot).values(
+                [
+                    {
+                        "fingerprint": record.fingerprint,
+                        "item_id": record.item_id,
+                        "amount": record.amount,
+                        "start_price": record.start_price,
+                        "current_price": record.current_price,
+                        "buyout_price": record.buyout_price,
+                        "start_time": record.start_time,
+                        "end_time": record.end_time,
+                        "quality": record.quality,
+                        "additional": record.additional,
+                        "first_seen_at": observed_at,
+                        "last_seen_at": observed_at,
+                        "active": True,
+                    }
+                    for record in chunk
+                ]
             )
-        )
+            await session.execute(
+                statement.on_conflict_do_update(
+                    index_elements=[AuctionLot.fingerprint],
+                    set_={
+                        "last_seen_at": observed_at,
+                        "disappeared_at": None,
+                        "active": True,
+                        "updated_at": func.now(),
+                    },
+                )
+            )
 
     disappeared = existing - current if complete_snapshot else set()
     if disappeared:

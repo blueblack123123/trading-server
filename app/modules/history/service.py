@@ -1,10 +1,19 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.modules.history.models import LotPollState
-from app.modules.history.repository import get_active_lots, get_aggregates, get_raw_sales
+from app.clients.stalzone import StalzoneClient
+from app.core.config import settings
+from app.modules.history.domain import LotRecord, parse_lot
+from app.modules.history.models import LotPollState, MarketItem
+from app.modules.history.repository import (
+    get_active_lots,
+    get_aggregates,
+    get_raw_sales,
+    store_lots,
+)
 from app.modules.history.schemas import (
     ActiveLot,
     ActiveLotsResponse,
@@ -148,6 +157,7 @@ async def read_active_lots(
                 fingerprint=lot.fingerprint,
                 amount=lot.amount,
                 start_price=lot.start_price,
+                current_price=lot.current_price,
                 buyout_price=lot.buyout_price,
                 start_time=lot.start_time,
                 end_time=lot.end_time,
@@ -158,3 +168,76 @@ async def read_active_lots(
             for lot in lots
         ],
     )
+
+
+async def get_or_refresh_active_lots(
+    session: AsyncSession,
+    item_id: str,
+    quality: int | None,
+) -> ActiveLotsResponse:
+    item = await session.get(MarketItem, item_id)
+    if item is None:
+        raise LookupError("item is not configured")
+
+    state = await session.get(LotPollState, item_id)
+    now = datetime.now(UTC)
+    if (
+        state is not None
+        and state.last_success_at is not None
+        and state.last_success_at >= now - timedelta(seconds=settings.lots_cache_ttl_seconds)
+    ):
+        return await read_active_lots(session, item_id, quality)
+
+    records, total, complete = await _fetch_all_lots(item_id)
+    if state is None:
+        state = LotPollState(item_id=item_id, next_poll_at=now)
+        session.add(state)
+        await session.flush()
+
+    await store_lots(
+        session,
+        item_id,
+        records,
+        now,
+        state.last_success_at,
+        complete,
+    )
+    state.last_polled_at = now
+    state.last_success_at = now
+    state.last_http_status = 200
+    state.consecutive_errors = 0
+    state.total_lots = total
+    state.snapshot_complete = complete
+    await session.commit()
+    return await read_active_lots(session, item_id, quality)
+
+
+async def _fetch_all_lots(item_id: str) -> tuple[list[LotRecord], int, bool]:
+    records_by_fingerprint: dict[str, LotRecord] = {}
+    offset = 0
+    total = 0
+    async with StalzoneClient() as client:
+        for _ in range(settings.lots_max_pages_per_request):
+            payload = await client.get_available_lots(
+                item_id=item_id,
+                limit=200,
+                offset=offset,
+            )
+            page, total = _parse_lots_response(item_id, payload)
+            records_by_fingerprint.update((record.fingerprint, record) for record in page)
+            offset += len(page)
+            if offset >= total or not page:
+                break
+    return list(records_by_fingerprint.values()), total, offset >= total
+
+
+def _parse_lots_response(item_id: str, payload: Any) -> tuple[list[LotRecord], int]:
+    if not isinstance(payload, dict):
+        raise ValueError("lots response must be an object")
+    raw_lots = payload.get("lots", [])
+    if not isinstance(raw_lots, list):
+        raise ValueError("lots response lots must be a list")
+    records = [parse_lot(item_id, row) for row in raw_lots if isinstance(row, dict)]
+    raw_total = payload.get("total", len(records))
+    total = int(raw_total) if isinstance(raw_total, (int, float, str)) else len(records)
+    return records, max(total, len(records))

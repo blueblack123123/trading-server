@@ -22,6 +22,7 @@ class LotRecord:
     item_id: str
     amount: int
     start_price: Decimal
+    current_price: Decimal
     buyout_price: Decimal
     start_time: datetime
     end_time: datetime
@@ -66,6 +67,7 @@ def parse_sale(item_id: str, payload: dict[str, Any]) -> SaleRecord:
 def parse_lot(item_id: str, payload: dict[str, Any]) -> LotRecord:
     amount = _parse_positive_int(payload.get("amount"), "amount")
     start_price = _parse_decimal(payload.get("startPrice", 0))
+    current_price = _parse_decimal(payload.get("currentPrice", 0))
     buyout_price = _parse_decimal(payload.get("buyoutPrice"))
     start_time = _parse_datetime(payload.get("startTime"))
     end_time = _parse_datetime(payload.get("endTime"))
@@ -79,6 +81,7 @@ def parse_lot(item_id: str, payload: dict[str, Any]) -> LotRecord:
             item_id,
             str(amount),
             format(start_price, "f"),
+            format(current_price, "f"),
             format(buyout_price, "f"),
             start_time.isoformat(),
             end_time.isoformat(),
@@ -92,6 +95,7 @@ def parse_lot(item_id: str, payload: dict[str, Any]) -> LotRecord:
         item_id=item_id,
         amount=amount,
         start_price=start_price,
+        current_price=current_price,
         buyout_price=buyout_price,
         start_time=start_time,
         end_time=end_time,

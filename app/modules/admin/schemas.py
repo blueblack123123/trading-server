@@ -9,6 +9,7 @@ class MarketStatus(IntEnum):
     NORMAL = 2
     RARE = 3
     IGNORE = 4
+    EXTREMELY_RARE = 5
 
 
 class MarketItemConfig(BaseModel):

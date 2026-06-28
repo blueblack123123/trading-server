@@ -4,7 +4,8 @@ FastAPI service and background worker for collecting STALZONE auction history.
 
 ## Run
 
-1. Copy `.env.example` to `.env` and set `STALZONE_INTERNAL_KEY` and `ADMIN_KEY`.
+1. Copy `.env.example` to `.env` and set `STALZONE_CLIENT_ID`,
+   `STALZONE_CLIENT_SECRET`, and `ADMIN_KEY`.
 2. Put the EXBO items database into `external/stalzone-database`.
 3. Start the stack:
 
@@ -26,18 +27,24 @@ curl -X POST http://localhost:8000/api/v1/admin/sync-market-items \
 
 ## History collection
 
-The upstream limit defaults to five evenly spaced requests per minute. Status intervals:
+The worker uses the official OAuth API and defaults to 180 evenly spaced auction requests
+per minute, leaving capacity for frontend requests. Status intervals:
 
 - `HOT`: 60 seconds;
 - `NORMAL`: 1 hour;
 - `RARE`: 12 hours;
-- `AUTO`: starts at 24 hours and is promoted from observed sales activity;
+- `EXTREMELY_RARE`: 7 days;
+- `AUTO`: classified on the first history response, then uses its effective status interval;
 - `IGNORE`: disabled.
+
+For `AUTO`, an empty history immediately results in `IGNORE`. If the latest sale is older
+than 90 days and there are no active lots, the effective status becomes `EXTREMELY_RARE`
+and the worker incrementally backfills the complete sale history.
 
 Repeated upstream results are deduplicated by sale timestamp, price, amount, quality (`qlt`),
 and canonical `additional` data. Raw sales are retained for 48 hours, hourly aggregates for
-35 days, and daily aggregates indefinitely. Active lots are stored by a stable fingerprint;
-disappeared lots remain available for 48 hours. Sales and lots share the same request budget.
+35 days, and daily aggregates indefinitely. The worker only collects sales. Active lots are
+requested from the official API on demand and cached for 15 seconds.
 
 Read stored history:
 
@@ -48,7 +55,7 @@ GET /api/v1/items/{item_id}/history?from=...&to=...&resolution=auto&qlt=3
 `resolution=auto` returns raw points for the last day, hourly points up to 30 days, and daily
 points for older data. Explicit values are `raw`, `hour`, and `day`.
 
-Read the last collected active lots without making an upstream request:
+Fetch active lots on demand (subsequent requests use the short cache):
 
 ```text
 GET /api/v1/items/{item_id}/lots?qlt=3

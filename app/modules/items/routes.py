@@ -1,12 +1,13 @@
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db_session
 from app.modules.history.schemas import ActiveLotsResponse, ItemHistoryResponse
-from app.modules.history.service import read_active_lots, read_history
+from app.modules.history.service import get_or_refresh_active_lots, read_history
 
 router = APIRouter()
 
@@ -44,4 +45,18 @@ async def get_item_lots(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     qlt: Annotated[int | None, Query(ge=0, le=255)] = None,
 ) -> ActiveLotsResponse:
-    return await read_active_lots(session, item_id, qlt)
+    try:
+        return await get_or_refresh_active_lots(session, item_id, qlt)
+    except LookupError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except httpx.HTTPStatusError as exc:
+        upstream_status = exc.response.status_code
+        response_status = (
+            status.HTTP_429_TOO_MANY_REQUESTS
+            if upstream_status == status.HTTP_429_TOO_MANY_REQUESTS
+            else status.HTTP_502_BAD_GATEWAY
+        )
+        raise HTTPException(
+            status_code=response_status,
+            detail=f"Stalzone API returned HTTP {upstream_status}",
+        ) from exc

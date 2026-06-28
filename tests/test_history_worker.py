@@ -1,9 +1,13 @@
+from datetime import UTC, datetime
+
 from app.modules.admin.schemas import MarketStatus
 from app.modules.history.models import HistoryPollState, MarketItem
 from app.modules.history.worker import (
     _filter_new_records,
     _parse_history_page,
     _parse_lots_page,
+    _poll_interval,
+    _should_backfill,
     _update_auto_status,
 )
 
@@ -41,6 +45,7 @@ def test_auto_status_requires_two_runs_to_promote() -> None:
         activity_score=25,
         auto_candidate_runs=0,
         consecutive_errors=0,
+        last_success_at=datetime(2026, 6, 28, tzinfo=UTC),
     )
 
     _update_auto_status(item, state)
@@ -102,21 +107,13 @@ def test_parse_lots_page_returns_quality() -> None:
     assert records[0].quality == 2
 
 
-def test_auto_status_uses_lot_activity() -> None:
+def test_extremely_rare_status_uses_weekly_interval_and_backfill() -> None:
     item = MarketItem(
         id="item-1",
         name="Item",
-        configured_status=int(MarketStatus.AUTO),
-        effective_status=int(MarketStatus.RARE),
-    )
-    state = HistoryPollState(
-        item_id="item-1",
-        activity_score=0,
-        auto_candidate_runs=0,
-        consecutive_errors=0,
+        configured_status=int(MarketStatus.EXTREMELY_RARE),
+        effective_status=int(MarketStatus.EXTREMELY_RARE),
     )
 
-    _update_auto_status(item, state, lot_activity_score=70)
-    _update_auto_status(item, state, lot_activity_score=70)
-
-    assert item.effective_status == int(MarketStatus.HOT)
+    assert _should_backfill(item, None) is True
+    assert _poll_interval(item).days == 7
