@@ -16,8 +16,6 @@ class Settings(BaseSettings):
 
     stalzone_requests_per_minute: int = 5
     collector_enabled: bool = False
-    history_page_size: int = 200
-    history_max_pages_per_poll: int = 5
 
     history_hot_interval_seconds: int = 60
     history_normal_interval_seconds: int = 1800

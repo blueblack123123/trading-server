@@ -34,7 +34,7 @@ The upstream limit defaults to five evenly spaced requests per minute. Status in
 - `AUTO`: starts at 24 hours and is promoted from observed sales activity;
 - `IGNORE`: disabled.
 
-Repeated upstream pages are deduplicated by sale timestamp, price, amount, quality (`qlt`),
+Repeated upstream results are deduplicated by sale timestamp, price, amount, quality (`qlt`),
 and canonical `additional` data. Raw sales are retained for 48 hours, hourly aggregates for
 35 days, and daily aggregates indefinitely. Active lots are stored by a stable fingerprint;
 disappeared lots remain available for 48 hours. Sales and lots share the same request budget.

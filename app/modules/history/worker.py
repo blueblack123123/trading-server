@@ -195,29 +195,11 @@ class HistoryWorker:
         claimed_state: HistoryPollState,
     ) -> None:
         checkpoint = claimed_state.latest_sale_at
-        fetched_records: list[SaleRecord] = []
-        latest_page_records: list[SaleRecord] = []
-        offset = 0
 
         try:
-            for page_index in range(settings.history_max_pages_per_poll):
-                await self._rate_limiter.acquire()
-                payload = await client.get_auction_history(
-                    item_id=item.id,
-                    limit=settings.history_page_size,
-                    offset=offset,
-                )
-                page_records, total = _parse_history_page(item.id, payload)
-                if page_index == 0:
-                    latest_page_records = page_records
-                fetched_records.extend(page_records)
-
-                if checkpoint is None or not page_records:
-                    break
-                oldest = min(record.sold_at for record in page_records)
-                offset += len(page_records)
-                if oldest <= checkpoint or offset >= total:
-                    break
+            await self._rate_limiter.acquire()
+            payload = await client.get_auction_history(item_id=item.id)
+            fetched_records, _ = _parse_history_page(item.id, payload)
 
             new_records = _filter_new_records(
                 fetched_records,
@@ -228,7 +210,7 @@ class HistoryWorker:
                 item,
                 new_records,
                 fetched_records,
-                latest_page_records,
+                fetched_records,
             )
         except httpx.HTTPStatusError as exc:
             http_status = exc.response.status_code
