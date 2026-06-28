@@ -1,8 +1,12 @@
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.clients.stalzone import StalzoneClient
+from app.api.v1.dependencies import get_db_session
+from app.modules.history.schemas import ActiveLotsResponse, ItemHistoryResponse
+from app.modules.history.service import read_active_lots, read_history
 
 router = APIRouter()
 
@@ -10,16 +14,34 @@ router = APIRouter()
 @router.get("/{item_id}/history")
 async def get_item_history(
     item_id: str,
-    region: str = Query(default="ru"),
-) -> Any:
-    client = StalzoneClient()
-    return await client.get_auction_history(item_id=item_id, region=region)
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    from_time: Annotated[datetime | None, Query(alias="from")] = None,
+    to_time: datetime | None = None,
+    resolution: Literal["auto", "raw", "hour", "day"] = "auto",
+    qlt: Annotated[int | None, Query(ge=0, le=255)] = None,
+) -> ItemHistoryResponse:
+    end = to_time or datetime.now(UTC)
+    start = from_time or end - timedelta(hours=24)
+    try:
+        return await read_history(
+            session=session,
+            item_id=item_id,
+            start=start,
+            end=end,
+            quality=qlt,
+            resolution=resolution,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+        ) from exc
 
 
 @router.get("/{item_id}/lots")
 async def get_item_lots(
     item_id: str,
-    region: str = Query(default="ru"),
-) -> Any:
-    client = StalzoneClient()
-    return await client.get_available_lots(item_id=item_id, region=region)
+    session: Annotated[AsyncSession, Depends(get_db_session)],
+    qlt: Annotated[int | None, Query(ge=0, le=255)] = None,
+) -> ActiveLotsResponse:
+    return await read_active_lots(session, item_id, qlt)

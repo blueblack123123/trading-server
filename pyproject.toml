@@ -47,3 +47,6 @@ indent-style = "space"
 python_version = "3.12"
 strict = true
 plugins = []
+
+[tool.pytest.ini_options]
+pythonpath = ["."]

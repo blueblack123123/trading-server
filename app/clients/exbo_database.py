@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import Any
 
 
 class ExboDatabaseClient:
@@ -8,6 +9,9 @@ class ExboDatabaseClient:
         self.items_path = self.database_path / "ru" / "items"
 
     def get_all_items(self) -> dict[str, str]:
+        if not self.items_path.is_dir():
+            raise FileNotFoundError(f"EXBO items directory does not exist: {self.items_path}")
+
         result: dict[str, str] = {}
 
         for path in self.items_path.rglob("*.json"):
@@ -18,10 +22,13 @@ class ExboDatabaseClient:
 
             result[item_id] = item_name
 
+        if not result:
+            raise RuntimeError(f"EXBO items directory contains no JSON files: {self.items_path}")
+
         return result
 
     @staticmethod
-    def _extract_name(item_data: dict, fallback: str) -> str:
+    def _extract_name(item_data: dict[str, Any], fallback: str) -> str:
         name = item_data.get("name")
 
         if isinstance(name, str):
