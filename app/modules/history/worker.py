@@ -52,7 +52,8 @@ class HistoryWorker:
                 "Collector is disabled. Set COLLECTOR_ENABLED=true and restart the worker."
             )
             while True:
-                await asyncio.sleep(60)
+                await self._sync_items(MarketItemsConfigService().get_config())
+                await asyncio.sleep(300)
 
         next_config_refresh = 0.0
         next_compaction = 0.0
