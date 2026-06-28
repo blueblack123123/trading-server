@@ -17,7 +17,7 @@ services:
 
   migrate:
     build: .
-    command: ["uv", "run", "alembic", "upgrade", "head"]
+    command: ["/app/.venv/bin/alembic", "upgrade", "head"]
     env_file:
       - .env
     environment:
@@ -47,7 +47,7 @@ services:
     build: .
     container_name: trading-history-worker
     restart: unless-stopped
-    command: ["uv", "run", "python", "-m", "app.modules.history.worker"]
+    command: ["/app/.venv/bin/python", "-m", "app.modules.history.worker"]
     env_file:
       - .env
     environment:
