@@ -1,3 +1,4 @@
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.admin.schemas import MarketStatus
@@ -5,12 +6,20 @@ from app.modules.history.models import HistoryPollState, MarketItem
 from app.modules.items.schemas import ItemStatusResponse, MarketStatusName
 
 
-async def read_item_status(session: AsyncSession, item_id: str) -> ItemStatusResponse:
-    item = await session.get(MarketItem, item_id)
-    if item is None:
-        raise LookupError("item is not configured")
+async def read_item_statuses(session: AsyncSession) -> list[ItemStatusResponse]:
+    statement = (
+        select(MarketItem, HistoryPollState)
+        .outerjoin(HistoryPollState, HistoryPollState.item_id == MarketItem.id)
+        .order_by(MarketItem.name, MarketItem.id)
+    )
+    rows = (await session.execute(statement)).all()
+    return [_build_status_response(item, state) for item, state in rows]
 
-    state = await session.get(HistoryPollState, item_id)
+
+def _build_status_response(
+    item: MarketItem,
+    state: HistoryPollState | None,
+) -> ItemStatusResponse:
     return ItemStatusResponse(
         item_id=item.id,
         name=item.name,

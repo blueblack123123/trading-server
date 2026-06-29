@@ -9,20 +9,16 @@ from app.api.v1.dependencies import get_db_session
 from app.modules.history.schemas import ActiveLotsResponse, ItemHistoryResponse
 from app.modules.history.service import get_or_refresh_active_lots, read_history
 from app.modules.items.schemas import ItemStatusResponse
-from app.modules.items.service import read_item_status
+from app.modules.items.service import read_item_statuses
 
 router = APIRouter()
 
 
-@router.get("/{item_id}/status")
-async def get_item_status(
-    item_id: str,
+@router.get("/statuses")
+async def get_item_statuses(
     session: Annotated[AsyncSession, Depends(get_db_session)],
-) -> ItemStatusResponse:
-    try:
-        return await read_item_status(session, item_id)
-    except LookupError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+) -> list[ItemStatusResponse]:
+    return await read_item_statuses(session)
 
 
 @router.get("/{item_id}/history")

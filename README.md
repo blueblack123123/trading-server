@@ -55,10 +55,10 @@ GET /api/v1/items/{item_id}/history?from=...&to=...&resolution=auto&qlt=3
 `resolution=auto` returns raw points for the last day and hourly points for older data.
 Explicit values are `raw` and `hour`.
 
-Read the configured and effective collector status for an item:
+Read the configured and effective collector statuses for all items:
 
 ```text
-GET /api/v1/items/{item_id}/status
+GET /api/v1/items/statuses
 ```
 
 Fetch active lots on demand (subsequent requests use the short cache):
