@@ -52,7 +52,14 @@ class HistoryPollState(TimestampMixin, Base):
         default=list,
     )
     backfill_offset: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    backfill_target: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     backfill_complete: Mapped[bool] = mapped_column(nullable=False, default=False)
+    backfill_next_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=func.now(),
+        index=True,
+    )
     last_http_status: Mapped[int | None] = mapped_column(Integer)
     consecutive_errors: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     activity_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)

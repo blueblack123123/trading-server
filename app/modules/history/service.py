@@ -38,7 +38,7 @@ async def read_history(
     points: list[HistoryPoint] = []
     if resolution == "auto":
         now = datetime.now(UTC)
-        raw_boundary = (now - timedelta(hours=24)).replace(
+        raw_boundary = (now - timedelta(hours=settings.history_raw_retention_hours)).replace(
             minute=0,
             second=0,
             microsecond=0,

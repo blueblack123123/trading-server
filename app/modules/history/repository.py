@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
@@ -125,6 +125,41 @@ async def _increment_aggregates(
     session: AsyncSession,
     rows: Sequence[RowMapping],
 ) -> None:
+    values = _group_hourly_values(
+        (
+            str(row["item_id"]),
+            row["sold_at"],
+            int(row["amount"]),
+            Decimal(row["price"]),
+            row["quality"],
+        )
+        for row in rows
+    )
+    await _upsert_hourly_values(session, values, additive=True)
+
+
+async def replace_hourly_aggregates(
+    session: AsyncSession,
+    records: Sequence[SaleRecord],
+) -> int:
+    """Idempotently replaces complete hourly buckets collected by backfill."""
+    values = _group_hourly_values(
+        (
+            record.item_id,
+            record.sold_at,
+            record.amount,
+            record.price,
+            record.quality,
+        )
+        for record in records
+    )
+    await _upsert_hourly_values(session, values, additive=False)
+    return len(values)
+
+
+def _group_hourly_values(
+    rows: Iterable[tuple[str, datetime, int, Decimal, int | None]],
+) -> list[dict[str, Any]]:
     grouped: dict[tuple[str, datetime, int | None], dict[str, Any]] = defaultdict(
         lambda: {
             "min_price": None,
@@ -136,16 +171,9 @@ async def _increment_aggregates(
         }
     )
 
-    for row in rows:
-        sold_at = row["sold_at"]
-        assert isinstance(sold_at, datetime)
-        price = Decimal(row["price"])
-        amount = int(row["amount"])
-        quality = row["quality"]
-        assert quality is None or isinstance(quality, int)
-
+    for item_id, sold_at, amount, price, quality in rows:
         bucket = sold_at.replace(minute=0, second=0, microsecond=0)
-        key = (str(row["item_id"]), bucket, quality)
+        key = (item_id, bucket, quality)
         values = grouped[key]
         current_min = values["min_price"]
         current_max = values["max_price"]
@@ -156,45 +184,101 @@ async def _increment_aggregates(
         values["amount_sum"] += amount
         values["sale_count"] += 1
 
-    for (item_id, bucket, quality), values in grouped.items():
-        aggregate_insert = insert(SaleAggregate).values(
-            item_id=item_id,
-            resolution="hour",
-            bucket_start=bucket,
-            quality=quality,
-            quality_key=UNKNOWN_QUALITY_KEY if quality is None else quality,
+    return [
+        {
+            "item_id": item_id,
+            "resolution": "hour",
+            "bucket_start": bucket,
+            "quality": quality,
+            "quality_key": UNKNOWN_QUALITY_KEY if quality is None else quality,
             **values,
-        )
+        }
+        for (item_id, bucket, quality), values in grouped.items()
+    ]
+
+
+async def _upsert_hourly_values(
+    session: AsyncSession,
+    values: list[dict[str, Any]],
+    *,
+    additive: bool,
+) -> None:
+    for start in range(0, len(values), 500):
+        aggregate_insert = insert(SaleAggregate).values(values[start : start + 500])
+        if additive:
+            update_values = {
+                "min_price": func.least(
+                    SaleAggregate.min_price,
+                    aggregate_insert.excluded.min_price,
+                ),
+                "max_price": func.greatest(
+                    SaleAggregate.max_price,
+                    aggregate_insert.excluded.max_price,
+                ),
+                "price_sum": SaleAggregate.price_sum + aggregate_insert.excluded.price_sum,
+                "weighted_price_sum": SaleAggregate.weighted_price_sum
+                + aggregate_insert.excluded.weighted_price_sum,
+                "amount_sum": SaleAggregate.amount_sum + aggregate_insert.excluded.amount_sum,
+                "sale_count": SaleAggregate.sale_count + aggregate_insert.excluded.sale_count,
+                "updated_at": func.now(),
+            }
+        else:
+            update_values = {
+                "quality": aggregate_insert.excluded.quality,
+                "min_price": aggregate_insert.excluded.min_price,
+                "max_price": aggregate_insert.excluded.max_price,
+                "price_sum": aggregate_insert.excluded.price_sum,
+                "weighted_price_sum": aggregate_insert.excluded.weighted_price_sum,
+                "amount_sum": aggregate_insert.excluded.amount_sum,
+                "sale_count": aggregate_insert.excluded.sale_count,
+                "updated_at": func.now(),
+            }
         await session.execute(
             aggregate_insert.on_conflict_do_update(
                 constraint="uq_sale_aggregate_bucket",
-                set_={
-                    "min_price": func.least(
-                        SaleAggregate.min_price,
-                        aggregate_insert.excluded.min_price,
-                    ),
-                    "max_price": func.greatest(
-                        SaleAggregate.max_price,
-                        aggregate_insert.excluded.max_price,
-                    ),
-                    "price_sum": SaleAggregate.price_sum + aggregate_insert.excluded.price_sum,
-                    "weighted_price_sum": SaleAggregate.weighted_price_sum
-                    + aggregate_insert.excluded.weighted_price_sum,
-                    "amount_sum": SaleAggregate.amount_sum + aggregate_insert.excluded.amount_sum,
-                    "sale_count": SaleAggregate.sale_count + aggregate_insert.excluded.sale_count,
-                    "updated_at": func.now(),
-                },
+                set_=update_values,
             )
         )
+
+
+async def prune_hourly_aggregates(
+    session: AsyncSession,
+    max_points: int,
+    item_id: str | None = None,
+) -> int:
+    if max_points <= 0:
+        raise ValueError("max_points must be positive")
+    ranked_query = select(
+        SaleAggregate.id.label("id"),
+        func.row_number()
+        .over(
+            partition_by=SaleAggregate.item_id,
+            order_by=(SaleAggregate.bucket_start.desc(), SaleAggregate.id.desc()),
+        )
+        .label("position"),
+    ).where(SaleAggregate.resolution == "hour")
+    if item_id is not None:
+        ranked_query = ranked_query.where(SaleAggregate.item_id == item_id)
+    ranked = ranked_query.subquery()
+    stale_ids = select(ranked.c.id).where(ranked.c.position > max_points)
+    result = await session.execute(delete(SaleAggregate).where(SaleAggregate.id.in_(stale_ids)))
+    return int(getattr(result, "rowcount", 0) or 0)
 
 
 async def compact_history(
     session: AsyncSession,
     now: datetime | None = None,
-) -> tuple[int, int]:
+    raw_retention_hours: int = 48,
+    max_hourly_points_per_item: int = 20_000,
+) -> tuple[int, int, int]:
     current = now or datetime.now(UTC)
+    raw_boundary = (current - timedelta(hours=raw_retention_hours)).replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
     raw_result = await session.execute(
-        delete(AuctionSale).where(AuctionSale.sold_at < current - timedelta(hours=48))
+        delete(AuctionSale).where(AuctionSale.sold_at < raw_boundary)
     )
     lots_result = await session.execute(
         delete(AuctionLot).where(
@@ -204,7 +288,11 @@ async def compact_history(
     )
     raw_count = int(getattr(raw_result, "rowcount", 0) or 0)
     lots_count = int(getattr(lots_result, "rowcount", 0) or 0)
-    return raw_count, lots_count
+    aggregate_count = await prune_hourly_aggregates(
+        session,
+        max_hourly_points_per_item,
+    )
+    return raw_count, lots_count, aggregate_count
 
 
 async def get_active_lots(

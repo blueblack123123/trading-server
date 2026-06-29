@@ -23,7 +23,14 @@ class Settings(BaseSettings):
 
     history_page_size: int = 200
     history_incremental_max_pages: int = 10
-    history_backfill_pages_per_poll: int = 50
+    history_live_requests_per_minute: int = 150
+    history_backfill_requests_per_minute: int = 30
+    history_backfill_min_records: int = 5_000
+    history_backfill_fraction: float = 0.30
+    history_backfill_max_records: int = 20_000
+    history_backfill_page_overlap: int = 10
+    history_max_hourly_points_per_item: int = 20_000
+    history_raw_retention_hours: int = 48
 
     history_hot_interval_seconds: int = 60
     history_normal_interval_seconds: int = 3600
