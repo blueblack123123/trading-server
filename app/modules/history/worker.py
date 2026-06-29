@@ -382,11 +382,10 @@ class HistoryWorker:
 
     async def _compact(self) -> None:
         async with async_session_factory() as session, session.begin():
-            raw_count, hourly_count, lots_count = await compact_history(session)
+            raw_count, lots_count = await compact_history(session)
         logger.info(
-            "Compacted raw=%s hourly=%s inactive_lots=%s",
+            "Compacted raw=%s inactive_lots=%s",
             raw_count,
-            hourly_count,
             lots_count,
         )
 

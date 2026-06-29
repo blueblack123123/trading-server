@@ -18,7 +18,7 @@ async def get_item_history(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     from_time: Annotated[datetime | None, Query(alias="from")] = None,
     to_time: datetime | None = None,
-    resolution: Literal["auto", "raw", "hour", "day"] = "auto",
+    resolution: Literal["auto", "raw", "hour"] = "auto",
     qlt: Annotated[int | None, Query(ge=0, le=255)] = None,
 ) -> ItemHistoryResponse:
     end = to_time or datetime.now(UTC)

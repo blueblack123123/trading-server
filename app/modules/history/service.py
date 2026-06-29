@@ -38,36 +38,27 @@ async def read_history(
     points: list[HistoryPoint] = []
     if resolution == "auto":
         now = datetime.now(UTC)
-        day_boundary = (now - timedelta(days=30)).replace(
-            hour=0,
-            minute=0,
-            second=0,
-            microsecond=0,
-        )
         raw_boundary = (now - timedelta(hours=24)).replace(
             minute=0,
             second=0,
             microsecond=0,
         )
         await _append_aggregate_points(
-            points, session, item_id, "day", start, min(end, day_boundary), quality
-        )
-        await _append_aggregate_points(
             points,
             session,
             item_id,
             "hour",
-            max(start, day_boundary),
+            start,
             min(end, raw_boundary),
             quality,
         )
         await _append_raw_points(points, session, item_id, max(start, raw_boundary), end, quality)
     elif resolution == "raw":
         await _append_raw_points(points, session, item_id, start, end, quality)
-    elif resolution in {"hour", "day"}:
+    elif resolution == "hour":
         await _append_aggregate_points(points, session, item_id, resolution, start, end, quality)
     else:
-        raise ValueError("resolution must be auto, raw, hour or day")
+        raise ValueError("resolution must be auto, raw or hour")
 
     points.sort(key=lambda point: point.timestamp)
     return ItemHistoryResponse(item_id=item_id, from_=start, to=end, points=points)

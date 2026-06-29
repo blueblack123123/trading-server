@@ -125,7 +125,7 @@ async def _increment_aggregates(
     session: AsyncSession,
     rows: Sequence[RowMapping],
 ) -> None:
-    grouped: dict[tuple[str, str, datetime, int | None], dict[str, Any]] = defaultdict(
+    grouped: dict[tuple[str, datetime, int | None], dict[str, Any]] = defaultdict(
         lambda: {
             "min_price": None,
             "max_price": None,
@@ -144,25 +144,22 @@ async def _increment_aggregates(
         quality = row["quality"]
         assert quality is None or isinstance(quality, int)
 
-        for resolution, bucket in (
-            ("hour", sold_at.replace(minute=0, second=0, microsecond=0)),
-            ("day", sold_at.replace(hour=0, minute=0, second=0, microsecond=0)),
-        ):
-            key = (str(row["item_id"]), resolution, bucket, quality)
-            values = grouped[key]
-            current_min = values["min_price"]
-            current_max = values["max_price"]
-            values["min_price"] = price if current_min is None else min(current_min, price)
-            values["max_price"] = price if current_max is None else max(current_max, price)
-            values["price_sum"] += price
-            values["weighted_price_sum"] += price * amount
-            values["amount_sum"] += amount
-            values["sale_count"] += 1
+        bucket = sold_at.replace(minute=0, second=0, microsecond=0)
+        key = (str(row["item_id"]), bucket, quality)
+        values = grouped[key]
+        current_min = values["min_price"]
+        current_max = values["max_price"]
+        values["min_price"] = price if current_min is None else min(current_min, price)
+        values["max_price"] = price if current_max is None else max(current_max, price)
+        values["price_sum"] += price
+        values["weighted_price_sum"] += price * amount
+        values["amount_sum"] += amount
+        values["sale_count"] += 1
 
-    for (item_id, resolution, bucket, quality), values in grouped.items():
+    for (item_id, bucket, quality), values in grouped.items():
         aggregate_insert = insert(SaleAggregate).values(
             item_id=item_id,
-            resolution=resolution,
+            resolution="hour",
             bucket_start=bucket,
             quality=quality,
             quality_key=UNKNOWN_QUALITY_KEY if quality is None else quality,
@@ -194,16 +191,10 @@ async def _increment_aggregates(
 async def compact_history(
     session: AsyncSession,
     now: datetime | None = None,
-) -> tuple[int, int, int]:
+) -> tuple[int, int]:
     current = now or datetime.now(UTC)
     raw_result = await session.execute(
         delete(AuctionSale).where(AuctionSale.sold_at < current - timedelta(hours=48))
-    )
-    hourly_result = await session.execute(
-        delete(SaleAggregate).where(
-            SaleAggregate.resolution == "hour",
-            SaleAggregate.bucket_start < current - timedelta(days=35),
-        )
     )
     lots_result = await session.execute(
         delete(AuctionLot).where(
@@ -212,9 +203,8 @@ async def compact_history(
         )
     )
     raw_count = int(getattr(raw_result, "rowcount", 0) or 0)
-    hourly_count = int(getattr(hourly_result, "rowcount", 0) or 0)
     lots_count = int(getattr(lots_result, "rowcount", 0) or 0)
-    return raw_count, hourly_count, lots_count
+    return raw_count, lots_count
 
 
 async def get_active_lots(

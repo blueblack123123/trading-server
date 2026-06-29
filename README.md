@@ -42,9 +42,9 @@ than 90 days and there are no active lots, the effective status becomes `EXTREME
 and the worker incrementally backfills the complete sale history.
 
 Repeated upstream results are deduplicated by sale timestamp, price, amount, quality (`qlt`),
-and canonical `additional` data. Raw sales are retained for 48 hours, hourly aggregates for
-35 days, and daily aggregates indefinitely. The worker only collects sales. Active lots are
-requested from the official API on demand and cached for 15 seconds.
+and canonical `additional` data. Raw sales are retained for 48 hours and hourly aggregates
+indefinitely. The worker only collects sales. Active lots are requested from the official API
+on demand and cached for 15 seconds.
 
 Read stored history:
 
@@ -52,8 +52,8 @@ Read stored history:
 GET /api/v1/items/{item_id}/history?from=...&to=...&resolution=auto&qlt=3
 ```
 
-`resolution=auto` returns raw points for the last day, hourly points up to 30 days, and daily
-points for older data. Explicit values are `raw`, `hour`, and `day`.
+`resolution=auto` returns raw points for the last day and hourly points for older data.
+Explicit values are `raw` and `hour`.
 
 Fetch active lots on demand (subsequent requests use the short cache):
 
