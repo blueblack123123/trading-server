@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class HistoryPoint(BaseModel):
     timestamp: datetime
-    resolution: Literal["raw", "hour"]
+    resolution: Literal["raw", "20min", "hour", "day"]
     quality: int | None
     min_price: Decimal
     max_price: Decimal
@@ -15,6 +15,7 @@ class HistoryPoint(BaseModel):
     weighted_average_price: Decimal
     amount: int
     sale_count: int
+    additional: dict[str, Any] | None = None
 
 
 class ItemHistoryResponse(BaseModel):

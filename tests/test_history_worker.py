@@ -133,6 +133,30 @@ def test_backfill_target_applies_floor_fraction_and_cap() -> None:
     assert _calculate_backfill_target(100_000) == 20_000
 
 
+def test_backfill_rate_uses_maximum_when_live_backlog_is_low(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "history_backfill_requests_per_minute", 30)
+    monkeypatch.setattr(settings, "history_backfill_max_requests_per_minute", 60)
+    monkeypatch.setattr(settings, "history_backfill_live_backlog_threshold", 5)
+    worker = HistoryWorker()
+    worker._count_due_live_history = AsyncMock(return_value=2)  # type: ignore[method-assign]
+
+    assert asyncio.run(worker._select_backfill_rate()) == 60
+
+
+def test_backfill_rate_uses_minimum_when_live_backlog_is_high(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "history_backfill_requests_per_minute", 30)
+    monkeypatch.setattr(settings, "history_backfill_max_requests_per_minute", 60)
+    monkeypatch.setattr(settings, "history_backfill_live_backlog_threshold", 5)
+    worker = HistoryWorker()
+    worker._count_due_live_history = AsyncMock(return_value=5)  # type: ignore[method-assign]
+
+    assert asyncio.run(worker._select_backfill_rate()) == 30
+
+
 def test_partial_oldest_hour_is_not_written() -> None:
     records, _ = _parse_history_page(
         "item-1",

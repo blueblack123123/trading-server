@@ -137,6 +137,7 @@ class SaleAggregate(TimestampMixin, Base):
             "resolution",
             "bucket_start",
             "quality_key",
+            "additional_key",
             name="uq_sale_aggregate_bucket",
         ),
         Index(
@@ -156,6 +157,8 @@ class SaleAggregate(TimestampMixin, Base):
     bucket_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     quality: Mapped[int | None] = mapped_column(SmallInteger)
     quality_key: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    additional: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    additional_key: Mapped[str] = mapped_column(String(64), nullable=False)
     min_price: Mapped[Decimal] = mapped_column(Numeric(24, 4), nullable=False)
     max_price: Mapped[Decimal] = mapped_column(Numeric(24, 4), nullable=False)
     price_sum: Mapped[Decimal] = mapped_column(Numeric(32, 4), nullable=False)

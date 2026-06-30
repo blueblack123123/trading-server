@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.sql import func
 
 from app.clients.stalzone import StalzoneClient
 from app.core.config import settings
@@ -18,7 +19,8 @@ from app.modules.history.domain import LotRecord, SaleRecord, parse_lot, parse_s
 from app.modules.history.models import HistoryPollState, LotPollState, MarketItem
 from app.modules.history.repository import (
     compact_history,
-    prune_hourly_aggregates,
+    prune_aggregates,
+    replace_daily_aggregates,
     replace_hourly_aggregates,
     store_sales,
 )
@@ -35,11 +37,17 @@ class UniformRateLimiter:
         self._lock = asyncio.Lock()
 
     async def acquire(self) -> None:
+        await self.acquire_at_rate(60.0 / self._interval)
+
+    async def acquire_at_rate(self, requests_per_minute: int) -> None:
+        if requests_per_minute <= 0:
+            raise ValueError("requests_per_minute must be positive")
+        interval = 60.0 / requests_per_minute
         async with self._lock:
             delay = max(0.0, self._next_allowed - monotonic())
             if delay:
                 await asyncio.sleep(delay)
-            self._next_allowed = monotonic() + self._interval
+            self._next_allowed = monotonic() + interval
 
 
 class HistoryWorker:
@@ -47,15 +55,16 @@ class HistoryWorker:
         self._rate_limiter = UniformRateLimiter(settings.stalzone_requests_per_minute)
         self._live_rate_limiter = UniformRateLimiter(settings.history_live_requests_per_minute)
         self._backfill_rate_limiter = UniformRateLimiter(
-            settings.history_backfill_requests_per_minute
+            settings.history_backfill_max_requests_per_minute
         )
 
     async def run(self) -> None:
         logger.info(
-            "Starting history worker with %s total requests/minute (live=%s, backfill=%s)",
+            "Starting history worker with %s total requests/minute (live=%s, backfill=%s-%s)",
             settings.stalzone_requests_per_minute,
             settings.history_live_requests_per_minute,
             settings.history_backfill_requests_per_minute,
+            settings.history_backfill_max_requests_per_minute,
         )
         if not settings.collector_enabled:
             logger.warning(
@@ -82,7 +91,7 @@ class HistoryWorker:
                 next_config_refresh = now_monotonic + 300.0
             if now_monotonic >= next_compaction:
                 await self._compact()
-                next_compaction = now_monotonic + 3600.0
+                next_compaction = now_monotonic + settings.history_compaction_interval_seconds
 
             claimed = await self._claim_next_history()
             if claimed is None:
@@ -103,8 +112,34 @@ class HistoryWorker:
         await self._rate_limiter.acquire()
 
     async def _acquire_backfill_request(self) -> None:
-        await self._backfill_rate_limiter.acquire()
+        rate = await self._select_backfill_rate()
+        await self._backfill_rate_limiter.acquire_at_rate(rate)
         await self._rate_limiter.acquire()
+
+    async def _select_backfill_rate(self) -> int:
+        minimum = settings.history_backfill_requests_per_minute
+        maximum = settings.history_backfill_max_requests_per_minute
+        if maximum <= minimum:
+            return minimum
+        backlog = await self._count_due_live_history()
+        if backlog >= settings.history_backfill_live_backlog_threshold:
+            return minimum
+        return maximum
+
+    async def _count_due_live_history(self) -> int:
+        now = datetime.now(UTC)
+        async with async_session_factory() as session:
+            statement = (
+                select(func.count())
+                .select_from(MarketItem)
+                .join(HistoryPollState, HistoryPollState.item_id == MarketItem.id)
+                .where(
+                    MarketItem.configured_status != int(MarketStatus.IGNORE),
+                    MarketItem.effective_status != int(MarketStatus.IGNORE),
+                    HistoryPollState.next_poll_at <= now,
+                )
+            )
+            return int(await session.scalar(statement) or 0)
 
     async def _sync_items(self, items: list[MarketItemConfig]) -> None:
         if not items:
@@ -433,10 +468,18 @@ class HistoryWorker:
     ) -> None:
         now = datetime.now(UTC)
         async with async_session_factory() as session, session.begin():
-            replaced = await replace_hourly_aggregates(session, records)
-            pruned = await prune_hourly_aggregates(
+            hourly_boundary = _hourly_history_boundary(now)
+            hourly_records = [
+                record for record in records if record.sold_at >= hourly_boundary
+            ]
+            daily_records = [
+                record for record in records if record.sold_at < hourly_boundary
+            ]
+            replaced_hourly = await replace_hourly_aggregates(session, hourly_records)
+            replaced_daily = await replace_daily_aggregates(session, daily_records)
+            pruned = await prune_aggregates(
                 session,
-                settings.history_max_hourly_points_per_item,
+                settings.history_max_aggregate_points_per_item,
                 item_id,
             )
             state = await session.get(HistoryPollState, item_id, with_for_update=True)
@@ -448,12 +491,13 @@ class HistoryWorker:
             state.backfill_next_at = now
 
         logger.info(
-            "Backfilled history %s: source=%s/%s target=%s hourly=%s pruned=%s",
+            "Backfilled history %s: source=%s/%s target=%s hourly=%s daily=%s pruned=%s",
             item_id,
             offset,
             total,
             target,
-            replaced,
+            replaced_hourly,
+            replaced_daily,
             pruned,
         )
 
@@ -487,7 +531,9 @@ class HistoryWorker:
             raw_count, lots_count, aggregate_count = await compact_history(
                 session,
                 raw_retention_hours=settings.history_raw_retention_hours,
-                max_hourly_points_per_item=settings.history_max_hourly_points_per_item,
+                hourly_retention_hours=settings.history_hourly_retention_hours,
+                max_raw_points_per_item=settings.history_max_raw_points_per_item,
+                max_aggregate_points_per_item=settings.history_max_aggregate_points_per_item,
             )
         logger.info(
             "Compacted raw=%s inactive_lots=%s old_hourly=%s",
@@ -552,6 +598,15 @@ def _calculate_backfill_target(total: int) -> int:
 def _raw_history_boundary(now: datetime | None = None) -> datetime:
     current = now or datetime.now(UTC)
     return (current - timedelta(hours=settings.history_raw_retention_hours)).replace(
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+
+
+def _hourly_history_boundary(now: datetime | None = None) -> datetime:
+    current = now or datetime.now(UTC)
+    return (current - timedelta(hours=settings.history_hourly_retention_hours)).replace(
         minute=0,
         second=0,
         microsecond=0,

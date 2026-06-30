@@ -27,8 +27,10 @@ async def get_item_history(
     session: Annotated[AsyncSession, Depends(get_db_session)],
     from_time: Annotated[datetime | None, Query(alias="from")] = None,
     to_time: datetime | None = None,
-    resolution: Literal["auto", "raw", "hour"] = "auto",
+    resolution: Literal["auto", "raw", "20min", "hour", "day"] = "auto",
     qlt: Annotated[int | None, Query(ge=0, le=255)] = None,
+    definition_ids: Annotated[list[str] | None, Query(alias="definition_id")] = None,
+    additional_key: Annotated[str | None, Query(min_length=64, max_length=64)] = None,
 ) -> ItemHistoryResponse:
     end = to_time or datetime.now(UTC)
     start = from_time or end - timedelta(hours=24)
@@ -40,6 +42,8 @@ async def get_item_history(
             end=end,
             quality=qlt,
             resolution=resolution,
+            definition_ids=definition_ids,
+            additional_key=additional_key,
         )
     except ValueError as exc:
         raise HTTPException(

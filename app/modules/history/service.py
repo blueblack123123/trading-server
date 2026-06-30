@@ -29,11 +29,15 @@ async def read_history(
     end: datetime,
     quality: int | None,
     resolution: str,
+    definition_ids: list[str] | None = None,
+    additional_key: str | None = None,
 ) -> ItemHistoryResponse:
     start = _as_utc(start)
     end = _as_utc(end)
     if start >= end:
         raise ValueError("from must be earlier than to")
+    definition_filters = _normalize_definition_ids(definition_ids or [])
+    additional_key = str(additional_key or "").strip() or None
 
     points: list[HistoryPoint] = []
     if resolution == "auto":
@@ -43,22 +47,81 @@ async def read_history(
             second=0,
             microsecond=0,
         )
+        hourly_boundary = (
+            now - timedelta(hours=settings.history_hourly_retention_hours)
+        ).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        await _append_aggregate_points(
+            points,
+            session,
+            item_id,
+            "day",
+            start,
+            min(end, hourly_boundary),
+            quality,
+            definition_filters,
+            additional_key,
+        )
         await _append_aggregate_points(
             points,
             session,
             item_id,
             "hour",
-            start,
+            max(start, hourly_boundary),
             min(end, raw_boundary),
             quality,
+            definition_filters,
+            additional_key,
         )
-        await _append_raw_points(points, session, item_id, max(start, raw_boundary), end, quality)
+        await _append_aggregate_points(
+            points,
+            session,
+            item_id,
+            "20min",
+            max(start, raw_boundary),
+            end,
+            quality,
+            definition_filters,
+            additional_key,
+        )
+        if additional_key is None:
+            await _append_raw_points(
+                points,
+                session,
+                item_id,
+                max(start, raw_boundary),
+                end,
+                quality,
+                definition_filters,
+            )
     elif resolution == "raw":
-        await _append_raw_points(points, session, item_id, start, end, quality)
-    elif resolution == "hour":
-        await _append_aggregate_points(points, session, item_id, resolution, start, end, quality)
+        if additional_key is None:
+            await _append_raw_points(
+                points,
+                session,
+                item_id,
+                start,
+                end,
+                quality,
+                definition_filters,
+            )
+    elif resolution in {"20min", "hour", "day"}:
+        await _append_aggregate_points(
+            points,
+            session,
+            item_id,
+            resolution,
+            start,
+            end,
+            quality,
+            definition_filters,
+            additional_key,
+        )
     else:
-        raise ValueError("resolution must be auto, raw or hour")
+        raise ValueError("resolution must be auto, raw, 20min, hour or day")
 
     points.sort(key=lambda point: point.timestamp)
     return ItemHistoryResponse(item_id=item_id, from_=start, to=end, points=points)
@@ -71,10 +134,18 @@ async def _append_raw_points(
     start: datetime,
     end: datetime,
     quality: int | None,
+    definition_ids: tuple[str, ...],
 ) -> None:
     if start >= end:
         return
-    for sale in await get_raw_sales(session, item_id, start, end, quality):
+    for sale in await get_raw_sales(
+        session,
+        item_id,
+        start,
+        end,
+        quality,
+        definition_ids,
+    ):
         points.append(
             HistoryPoint(
                 timestamp=sale.sold_at,
@@ -86,6 +157,7 @@ async def _append_raw_points(
                 weighted_average_price=sale.price,
                 amount=sale.amount,
                 sale_count=1,
+                additional=sale.additional,
             )
         )
 
@@ -98,10 +170,21 @@ async def _append_aggregate_points(
     start: datetime,
     end: datetime,
     quality: int | None,
+    definition_ids: tuple[str, ...],
+    additional_key: str | None,
 ) -> None:
     if start >= end:
         return
-    aggregates = await get_aggregates(session, item_id, resolution, start, end, quality)
+    aggregates = await get_aggregates(
+        session,
+        item_id,
+        resolution,
+        start,
+        end,
+        quality,
+        definition_ids,
+        additional_key,
+    )
     for aggregate in aggregates:
         sale_count = int(aggregate.sale_count)
         amount_sum = int(aggregate.amount_sum)
@@ -116,6 +199,7 @@ async def _append_aggregate_points(
                 weighted_average_price=aggregate.weighted_price_sum / Decimal(amount_sum),
                 amount=amount_sum,
                 sale_count=sale_count,
+                additional=aggregate.additional,
             )
         )
 
@@ -124,6 +208,18 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _normalize_definition_ids(definition_ids: list[str]) -> tuple[str, ...]:
+    result = []
+    seen = set()
+    for value in definition_ids:
+        normalized = str(value or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        result.append(normalized)
+    return tuple(result)
 
 
 async def read_active_lots(
