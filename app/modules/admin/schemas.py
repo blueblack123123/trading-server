@@ -54,6 +54,7 @@ class HistoryTopItemStorage(BaseModel):
     name: str
     raw_points: int
     aggregate_points: int
+    aggregate_keys: int
     total_points: int
 
 
@@ -65,6 +66,7 @@ class HistoryStorageStatus(BaseModel):
     database_size_bytes: int | None
     aggregate_resolutions: list[HistoryResolutionStorage]
     top_items: list[HistoryTopItemStorage]
+    items: list[HistoryTopItemStorage]
 
 
 class HistoryStatusResponse(BaseModel):

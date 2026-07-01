@@ -2,7 +2,7 @@ from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import func, literal, select, union_all
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db_session
@@ -191,6 +191,7 @@ async def _read_storage_status(session: AsyncSession) -> HistoryStorageStatus:
         )
         or 0
     )
+    item_storage = await _read_item_storage(session)
     return HistoryStorageStatus(
         raw_points=raw_points,
         aggregate_points=aggregate_points,
@@ -198,41 +199,45 @@ async def _read_storage_status(session: AsyncSession) -> HistoryStorageStatus:
         inactive_lots=inactive_lots,
         database_size_bytes=await _read_database_size(session),
         aggregate_resolutions=aggregate_resolutions,
-        top_items=await _read_top_item_storage(session),
+        top_items=item_storage,
+        items=item_storage,
     )
 
 
-async def _read_top_item_storage(session: AsyncSession) -> list[HistoryTopItemStorage]:
+async def _read_item_storage(session: AsyncSession) -> list[HistoryTopItemStorage]:
     raw_counts = (
         select(
             AuctionSale.item_id.label("item_id"),
             func.count().label("raw_points"),
-            literal(0).label("aggregate_points"),
         )
         .group_by(AuctionSale.item_id)
+        .subquery()
     )
     aggregate_counts = (
         select(
             SaleAggregate.item_id.label("item_id"),
-            literal(0).label("raw_points"),
             func.count().label("aggregate_points"),
+            func.count(func.distinct(SaleAggregate.additional_key)).label("aggregate_keys"),
         )
         .group_by(SaleAggregate.item_id)
+        .subquery()
     )
-    counts = union_all(raw_counts, aggregate_counts).subquery()
-    total_points = func.sum(counts.c.raw_points + counts.c.aggregate_points)
+    raw_points = func.coalesce(raw_counts.c.raw_points, 0)
+    aggregate_points = func.coalesce(aggregate_counts.c.aggregate_points, 0)
+    aggregate_keys = func.coalesce(aggregate_counts.c.aggregate_keys, 0)
+    total_points = raw_points + aggregate_points
     rows = await session.execute(
         select(
             MarketItem.id,
             MarketItem.name,
-            func.sum(counts.c.raw_points).label("raw_points"),
-            func.sum(counts.c.aggregate_points).label("aggregate_points"),
+            raw_points.label("raw_points"),
+            aggregate_points.label("aggregate_points"),
+            aggregate_keys.label("aggregate_keys"),
             total_points.label("total_points"),
         )
-        .join(counts, counts.c.item_id == MarketItem.id)
-        .group_by(MarketItem.id, MarketItem.name)
+        .outerjoin(raw_counts, raw_counts.c.item_id == MarketItem.id)
+        .outerjoin(aggregate_counts, aggregate_counts.c.item_id == MarketItem.id)
         .order_by(total_points.desc(), MarketItem.name)
-        .limit(25)
     )
     return [
         HistoryTopItemStorage(
@@ -240,6 +245,7 @@ async def _read_top_item_storage(session: AsyncSession) -> list[HistoryTopItemSt
             name=str(row.name),
             raw_points=int(row.raw_points or 0),
             aggregate_points=int(row.aggregate_points or 0),
+            aggregate_keys=int(row.aggregate_keys or 0),
             total_points=int(row.total_points or 0),
         )
         for row in rows
