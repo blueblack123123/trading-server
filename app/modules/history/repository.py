@@ -4,6 +4,8 @@ from collections import defaultdict
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import case, delete, or_, select, update
@@ -12,6 +14,7 @@ from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
+from app.core.config import settings
 from app.modules.history.domain import LotRecord, SaleRecord
 from app.modules.history.models import AuctionLot, AuctionSale, SaleAggregate
 
@@ -220,11 +223,11 @@ def _group_aggregate_values(
             )
         else:
             bucket = sold_at.replace(minute=0, second=0, microsecond=0)
-        additional = additional if isinstance(additional, dict) else {}
-        additional_key = _additional_key(additional)
+        aggregate_additional = _aggregate_additional(item_id, additional, quality)
+        additional_key = _additional_key(aggregate_additional)
         key = (item_id, bucket, quality, additional_key)
         values = grouped[key]
-        values.setdefault("additional", additional)
+        values.setdefault("additional", aggregate_additional)
         current_min = values["min_price"]
         current_max = values["max_price"]
         values["min_price"] = price if current_min is None else min(current_min, price)
@@ -467,6 +470,57 @@ async def compact_raw_overflow_to_20min(
 def _additional_key(additional: dict[str, Any]) -> str:
     canonical = json.dumps(additional, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _aggregate_additional(
+    item_id: str,
+    additional: dict[str, Any],
+    quality: int | None,
+) -> dict[str, Any]:
+    if not isinstance(additional, dict):
+        additional = {}
+    if not _is_artifact_item_id(item_id):
+        return additional
+    qlt = additional.get("qlt", quality)
+    return {"qlt": qlt} if qlt is not None else {}
+
+
+def _is_artifact_item_id(item_id: str) -> bool:
+    return item_id in _artifact_item_ids()
+
+
+@lru_cache(maxsize=1)
+def _artifact_item_ids() -> frozenset[str]:
+    database_path = Path(settings.exbo_database_path)
+    ids: set[str] = set()
+    for listing_path in (
+        database_path / "ru" / "listing.json",
+        database_path / "global" / "listing.json",
+    ):
+        ids.update(_read_artifact_ids_from_listing(listing_path))
+    return frozenset(ids)
+
+
+def _read_artifact_ids_from_listing(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    try:
+        listing = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return set()
+    if not isinstance(listing, list):
+        return set()
+    result = set()
+    for item in listing:
+        if not isinstance(item, dict):
+            continue
+        data_path = str(item.get("data") or "")
+        if not data_path.startswith("/items/artefact/"):
+            continue
+        item_id = Path(data_path).stem
+        if item_id:
+            result.add(item_id)
+    return result
 
 
 async def prune_raw_sales(

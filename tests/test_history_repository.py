@@ -10,6 +10,7 @@ from sqlalchemy.engine import RowMapping
 from app.modules.history.domain import SaleRecord
 from app.modules.history.repository import (
     _definition_id_variants,
+    _group_aggregate_values,
     _increment_aggregates,
     compact_history,
     replace_daily_aggregates,
@@ -59,6 +60,70 @@ def test_definition_id_variants_include_module_suffixes_and_base_id() -> None:
         "hip_spread_pre",
         "hip_spread_aff",
     )
+
+
+def test_artifact_aggregates_ignore_unique_roll_fields_and_keep_quality() -> None:
+    rows = [
+        (
+            "4lml",
+            datetime(2026, 6, 29, 10, 15, tzinfo=UTC),
+            1,
+            Decimal("100"),
+            2,
+            {"qlt": 2, "spawn_time": 100, "ndmg": 0.1, "ptn": 15},
+        ),
+        (
+            "4lml",
+            datetime(2026, 6, 29, 10, 45, tzinfo=UTC),
+            3,
+            Decimal("200"),
+            2,
+            {"qlt": 2, "spawn_time": 200, "ndmg": 0.9, "ptn": 15},
+        ),
+    ]
+
+    with patch(
+        "app.modules.history.repository._artifact_item_ids",
+        return_value=frozenset({"4lml"}),
+    ):
+        values = _group_aggregate_values(rows, resolution="hour")
+
+    assert len(values) == 1
+    assert values[0]["additional"] == {"qlt": 2}
+    assert values[0]["amount_sum"] == 4
+    assert values[0]["sale_count"] == 2
+
+
+def test_non_artifact_aggregates_keep_full_additional_payload() -> None:
+    rows = [
+        (
+            "1pyq",
+            datetime(2026, 6, 29, 10, 15, tzinfo=UTC),
+            1,
+            Decimal("100"),
+            3,
+            {"attributes": [{"definitionId": "concentration_aff"}]},
+        ),
+        (
+            "1pyq",
+            datetime(2026, 6, 29, 10, 45, tzinfo=UTC),
+            1,
+            Decimal("200"),
+            3,
+            {"attributes": [{"definitionId": "draw_time_pre"}]},
+        ),
+    ]
+
+    with patch(
+        "app.modules.history.repository._artifact_item_ids",
+        return_value=frozenset({"4lml"}),
+    ):
+        values = _group_aggregate_values(rows, resolution="hour")
+
+    assert len(values) == 2
+    assert {
+        value["additional"]["attributes"][0]["definitionId"] for value in values
+    } == {"concentration_aff", "draw_time_pre"}
 
 
 def test_replace_hourly_aggregates_overwrites_instead_of_incrementing() -> None:

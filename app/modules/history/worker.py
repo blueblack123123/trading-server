@@ -18,6 +18,7 @@ from app.modules.admin.service import MarketItemsConfigService
 from app.modules.history.domain import LotRecord, SaleRecord, parse_lot, parse_sale
 from app.modules.history.models import HistoryPollState, LotPollState, MarketItem
 from app.modules.history.repository import (
+    _is_artifact_item_id,
     compact_history,
     prune_aggregates,
     replace_daily_aggregates,
@@ -443,7 +444,7 @@ class HistoryWorker:
             )
             page, page_total = _parse_history_page(item_id, payload)
             total = max(total, page_total)
-            target = _calculate_backfill_target(total)
+            target = _calculate_backfill_target(total, item_id)
             processed_offset = min(total, max(processed_offset, offset + len(page)))
             for record in page:
                 if record.sold_at < raw_boundary:
@@ -584,15 +585,19 @@ def _filter_new_records(
     ]
 
 
-def _calculate_backfill_target(total: int) -> int:
+def _calculate_backfill_target(total: int, item_id: str | None = None) -> int:
     if total <= 0:
         return 0
     fraction_target = ceil(total * settings.history_backfill_fraction)
-    return min(
+    target = min(
         total,
         settings.history_backfill_max_records,
         max(settings.history_backfill_min_records, fraction_target),
     )
+    if item_id is not None and _is_artifact_item_id(item_id):
+        artifact_target = settings.history_max_aggregate_points_per_item * 20
+        target = max(target, min(total, artifact_target))
+    return target
 
 
 def _raw_history_boundary(now: datetime | None = None) -> datetime:
