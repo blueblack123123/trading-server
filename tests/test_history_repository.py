@@ -85,6 +85,9 @@ def test_artifact_aggregates_ignore_unique_roll_fields_and_keep_quality() -> Non
     with patch(
         "app.modules.history.repository._artifact_item_ids",
         return_value=frozenset({"4lml"}),
+    ), patch(
+        "app.modules.history.repository._weapon_module_item_ids",
+        return_value=frozenset({"1pyq"}),
     ):
         values = _group_aggregate_values(rows, resolution="hour")
 
@@ -97,7 +100,7 @@ def test_artifact_aggregates_ignore_unique_roll_fields_and_keep_quality() -> Non
 def test_non_artifact_aggregates_keep_full_additional_payload() -> None:
     rows = [
         (
-            "1pyq",
+            "item-1",
             datetime(2026, 6, 29, 10, 15, tzinfo=UTC),
             1,
             Decimal("100"),
@@ -105,7 +108,7 @@ def test_non_artifact_aggregates_keep_full_additional_payload() -> None:
             {"attributes": [{"definitionId": "concentration_aff"}]},
         ),
         (
-            "1pyq",
+            "item-1",
             datetime(2026, 6, 29, 10, 45, tzinfo=UTC),
             1,
             Decimal("200"),
@@ -124,6 +127,86 @@ def test_non_artifact_aggregates_keep_full_additional_payload() -> None:
     assert {
         value["additional"]["attributes"][0]["definitionId"] for value in values
     } == {"concentration_aff", "draw_time_pre"}
+
+
+def test_weapon_module_aggregates_ignore_roll_fields_and_keep_definition_ids() -> None:
+    rows = [
+        (
+            "1pyq",
+            datetime(2026, 6, 29, 10, 15, tzinfo=UTC),
+            1,
+            Decimal("100"),
+            3,
+            {
+                "qlt": 3,
+                "attributes": [
+                    {
+                        "type": 1,
+                        "quality": 3,
+                        "statsRandom": 1.0,
+                        "definitionId": "hip_spread_suf",
+                    },
+                    {
+                        "type": 2,
+                        "quality": 1,
+                        "statsRandom": 0.2,
+                        "definitionId": "marksman",
+                    },
+                    {
+                        "quality": 2,
+                        "statsRandom": -0.4,
+                        "definitionId": "draw_time_pre",
+                    },
+                ],
+            },
+        ),
+        (
+            "1pyq",
+            datetime(2026, 6, 29, 10, 45, tzinfo=UTC),
+            2,
+            Decimal("200"),
+            3,
+            {
+                "qlt": 3,
+                "attributes": [
+                    {
+                        "quality": 1,
+                        "statsRandom": 0.9,
+                        "definitionId": "draw_time_pre",
+                    },
+                    {
+                        "type": 1,
+                        "quality": 2,
+                        "statsRandom": -0.1,
+                        "definitionId": "hip_spread_suf",
+                    },
+                    {
+                        "type": 2,
+                        "quality": 3,
+                        "statsRandom": 1.8,
+                        "definitionId": "marksman",
+                    },
+                ],
+            },
+        ),
+    ]
+
+    with patch(
+        "app.modules.history.repository._artifact_item_ids",
+        return_value=frozenset({"4lml"}),
+    ):
+        values = _group_aggregate_values(rows, resolution="hour")
+
+    assert len(values) == 1
+    assert values[0]["additional"] == {
+        "attributes": [
+            {"definitionId": "draw_time_pre", "type": 0},
+            {"definitionId": "marksman", "type": 2},
+            {"definitionId": "hip_spread_suf", "type": 1},
+        ]
+    }
+    assert values[0]["amount_sum"] == 3
+    assert values[0]["sale_count"] == 2
 
 
 def test_replace_hourly_aggregates_overwrites_instead_of_incrementing() -> None:

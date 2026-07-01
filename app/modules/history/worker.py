@@ -19,6 +19,7 @@ from app.modules.history.domain import LotRecord, SaleRecord, parse_lot, parse_s
 from app.modules.history.models import HistoryPollState, LotPollState, MarketItem
 from app.modules.history.repository import (
     _is_artifact_item_id,
+    _is_weapon_module_item_id,
     compact_history,
     prune_aggregates,
     replace_daily_aggregates,
@@ -597,6 +598,9 @@ def _calculate_backfill_target(total: int, item_id: str | None = None) -> int:
     if item_id is not None and _is_artifact_item_id(item_id):
         artifact_target = settings.history_max_aggregate_points_per_item * 20
         target = max(target, min(total, artifact_target))
+    if item_id is not None and _is_weapon_module_item_id(item_id):
+        module_target = settings.history_max_aggregate_points_per_item * 20
+        target = max(target, min(total, module_target))
     return target
 
 

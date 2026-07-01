@@ -480,9 +480,88 @@ def _aggregate_additional(
     if not isinstance(additional, dict):
         additional = {}
     if not _is_artifact_item_id(item_id):
+        if _is_weapon_module_item_id(item_id):
+            weapon_module_additional = _aggregate_weapon_module_additional(additional)
+            if weapon_module_additional is not None:
+                return weapon_module_additional
         return additional
     qlt = additional.get("qlt", quality)
     return {"qlt": qlt} if qlt is not None else {}
+
+
+def _is_weapon_module_item_id(item_id: str) -> bool:
+    return item_id in _weapon_module_item_ids()
+
+
+@lru_cache(maxsize=1)
+def _weapon_module_item_ids() -> frozenset[str]:
+    config_path = Path(settings.market_items_config_path)
+    if not config_path.exists():
+        return frozenset()
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return frozenset()
+    if not isinstance(data, list):
+        return frozenset()
+
+    ids = {
+        str(item.get("id") or "").strip()
+        for item in data
+        if isinstance(item, dict)
+        and str(item.get("name") or "").strip().casefold() == "оружейный модуль"
+    }
+    return frozenset(item_id for item_id in ids if item_id)
+
+
+def _aggregate_weapon_module_additional(additional: dict[str, Any]) -> dict[str, Any] | None:
+    raw_attributes = additional.get("attributes")
+    if not isinstance(raw_attributes, list):
+        return None
+
+    attributes = []
+    for raw_attribute in raw_attributes:
+        if not isinstance(raw_attribute, dict):
+            continue
+        definition_id = str(raw_attribute.get("definitionId") or "").strip()
+        if not definition_id:
+            continue
+        attributes.append(
+            {
+                "definitionId": definition_id,
+                "type": _weapon_module_attribute_type(raw_attribute, definition_id),
+            }
+        )
+    if len(attributes) < 3:
+        return None
+
+    component_order = {0: 0, 2: 1, 1: 2}
+    return {
+        "attributes": sorted(
+            attributes,
+            key=lambda attribute: (
+                component_order.get(int(attribute["type"]), 99),
+                str(attribute["definitionId"]),
+            ),
+        )
+    }
+
+
+def _weapon_module_attribute_type(
+    raw_attribute: dict[str, Any],
+    definition_id: str,
+) -> int:
+    try:
+        explicit_type = int(raw_attribute.get("type"))
+    except (TypeError, ValueError):
+        explicit_type = -1
+    if explicit_type in {0, 1, 2}:
+        return explicit_type
+    if definition_id.endswith("_suf"):
+        return 1
+    if definition_id.endswith("_aff"):
+        return 2
+    return 0
 
 
 def _is_artifact_item_id(item_id: str) -> bool:

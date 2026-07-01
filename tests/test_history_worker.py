@@ -149,6 +149,26 @@ def test_artifact_backfill_target_uses_aggregate_capacity_proxy(
     assert _calculate_backfill_target(728_975, "not-artifact") == 20_000
 
 
+def test_weapon_module_backfill_target_uses_aggregate_capacity_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, "history_backfill_min_records", 5_000)
+    monkeypatch.setattr(settings, "history_backfill_fraction", 0.30)
+    monkeypatch.setattr(settings, "history_backfill_max_records", 20_000)
+    monkeypatch.setattr(settings, "history_max_aggregate_points_per_item", 15_000)
+    monkeypatch.setattr(
+        "app.modules.history.worker._is_artifact_item_id",
+        lambda item_id: False,
+    )
+    monkeypatch.setattr(
+        "app.modules.history.worker._is_weapon_module_item_id",
+        lambda item_id: item_id == "1pyq",
+    )
+
+    assert _calculate_backfill_target(500_000, "1pyq") == 300_000
+    assert _calculate_backfill_target(500_000, "not-module") == 20_000
+
+
 def test_backfill_rate_uses_maximum_when_live_backlog_is_low(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
