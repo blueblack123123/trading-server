@@ -230,6 +230,11 @@ async def _read_item_storage(session: AsyncSession) -> list[HistoryTopItemStorag
         select(
             MarketItem.id,
             MarketItem.name,
+            func.coalesce(HistoryPollState.backfill_complete, False).label(
+                "backfill_complete"
+            ),
+            func.coalesce(HistoryPollState.backfill_offset, 0).label("backfill_offset"),
+            func.coalesce(HistoryPollState.backfill_target, 0).label("backfill_target"),
             raw_points.label("raw_points"),
             aggregate_points.label("aggregate_points"),
             aggregate_keys.label("aggregate_keys"),
@@ -237,12 +242,16 @@ async def _read_item_storage(session: AsyncSession) -> list[HistoryTopItemStorag
         )
         .outerjoin(raw_counts, raw_counts.c.item_id == MarketItem.id)
         .outerjoin(aggregate_counts, aggregate_counts.c.item_id == MarketItem.id)
+        .outerjoin(HistoryPollState, HistoryPollState.item_id == MarketItem.id)
         .order_by(total_points.desc(), MarketItem.name)
     )
     return [
         HistoryTopItemStorage(
             item_id=str(row.id),
             name=str(row.name),
+            backfill_complete=bool(row.backfill_complete),
+            backfill_offset=int(row.backfill_offset or 0),
+            backfill_target=int(row.backfill_target or 0),
             raw_points=int(row.raw_points or 0),
             aggregate_points=int(row.aggregate_points or 0),
             aggregate_keys=int(row.aggregate_keys or 0),

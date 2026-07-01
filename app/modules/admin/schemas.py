@@ -52,6 +52,9 @@ class HistoryResolutionStorage(BaseModel):
 class HistoryTopItemStorage(BaseModel):
     item_id: str
     name: str
+    backfill_complete: bool
+    backfill_offset: int
+    backfill_target: int
     raw_points: int
     aggregate_points: int
     aggregate_keys: int
