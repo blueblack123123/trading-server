@@ -31,6 +31,7 @@ async def get_item_history(
     qlt: Annotated[int | None, Query(ge=0, le=255)] = None,
     definition_ids: Annotated[list[str] | None, Query(alias="definition_id")] = None,
     additional_key: Annotated[str | None, Query(min_length=64, max_length=64)] = None,
+    include_additional: bool = True,
 ) -> ItemHistoryResponse:
     end = to_time or datetime.now(UTC)
     start = from_time or end - timedelta(hours=24)
@@ -44,6 +45,7 @@ async def get_item_history(
             resolution=resolution,
             definition_ids=definition_ids,
             additional_key=additional_key,
+            include_additional=include_additional,
         )
     except ValueError as exc:
         raise HTTPException(

@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     admin_key: str = ""
     market_items_config_path: str = "config/market_items.json"
     exbo_database_path: str = "/app/external/stalzone-database"
+    exbo_database_archive_url: str = (
+        "https://codeload.github.com/EXBO-Studio/stalzone-database/zip/refs/heads/main"
+    )
+    exbo_database_update_interval_seconds: int = 604800
+    exbo_database_update_timeout_seconds: int = 300
     database_url: str = "postgresql+asyncpg://trading:trading@localhost:5432/trading"
 
     stalzone_requests_per_minute: int = 180
@@ -28,12 +33,13 @@ class Settings(BaseSettings):
     history_backfill_max_requests_per_minute: int = 60
     history_backfill_live_backlog_threshold: int = 5
     history_backfill_min_records: int = 5_000
-    history_backfill_fraction: float = 0.30
-    history_backfill_max_records: int = 20_000
+    history_backfill_fraction: float = 1.0
+    history_backfill_max_records: int = 40_000
     history_backfill_page_overlap: int = 10
     history_max_raw_points_per_item: int = 10_000
-    history_max_aggregate_points_per_item: int = 15_000
-    history_max_hourly_points_per_item: int = 15_000
+    history_max_aggregate_points_per_item: int = 40_000
+    history_max_module_aggregate_points_per_item: int = 500_000
+    history_max_hourly_points_per_item: int = 40_000
     history_raw_retention_hours: int = 48
     history_hourly_retention_hours: int = 24 * 60
     history_compaction_interval_seconds: int = 300

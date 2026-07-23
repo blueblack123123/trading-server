@@ -286,11 +286,56 @@ def test_compact_history_prunes_old_aggregates() -> None:
             AsyncMock(return_value=5),
         ),
         patch("app.modules.history.repository.delete_aggregates_before", AsyncMock(return_value=6)),
-        patch("app.modules.history.repository.prune_aggregates", AsyncMock(return_value=3)),
+        patch(
+            "app.modules.history.repository.prune_aggregates",
+            AsyncMock(return_value=3),
+        ) as prune,
     ):
         deleted = asyncio.run(compact_history(session, now=datetime(2026, 6, 29, 12, tzinfo=UTC)))
 
     assert deleted == (9, 2, 16)
+    prune.assert_awaited_once_with(
+        session,
+        15_000,
+        module_max_points=None,
+    )
     assert session.execute.await_count == 2
     statements = [str(call.args[0]) for call in session.execute.await_args_list]
     assert "auction_sales" in statements[0]
+
+
+def test_compact_history_passes_module_aggregate_limit() -> None:
+    session = AsyncMock()
+    session.execute.side_effect = [
+        SimpleNamespace(rowcount=0),
+        SimpleNamespace(rowcount=0),
+    ]
+
+    with (
+        patch(
+            "app.modules.history.repository.compact_hourly_aggregates_to_daily",
+            AsyncMock(return_value=0),
+        ),
+        patch(
+            "app.modules.history.repository.compact_raw_overflow_to_20min",
+            AsyncMock(return_value=0),
+        ),
+        patch("app.modules.history.repository.delete_aggregates_before", AsyncMock(return_value=0)),
+        patch(
+            "app.modules.history.repository.prune_aggregates",
+            AsyncMock(return_value=0),
+        ) as prune,
+    ):
+        asyncio.run(
+            compact_history(
+                session,
+                max_aggregate_points_per_item=40_000,
+                max_module_aggregate_points_per_item=500_000,
+            )
+        )
+
+    prune.assert_awaited_once_with(
+        session,
+        40_000,
+        module_max_points=500_000,
+    )

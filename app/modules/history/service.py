@@ -31,6 +31,7 @@ async def read_history(
     resolution: str,
     definition_ids: list[str] | None = None,
     additional_key: str | None = None,
+    include_additional: bool = True,
 ) -> ItemHistoryResponse:
     start = _as_utc(start)
     end = _as_utc(end)
@@ -64,6 +65,7 @@ async def read_history(
             quality,
             definition_filters,
             additional_key,
+            include_additional,
         )
         await _append_aggregate_points(
             points,
@@ -75,6 +77,7 @@ async def read_history(
             quality,
             definition_filters,
             additional_key,
+            include_additional,
         )
         await _append_aggregate_points(
             points,
@@ -86,6 +89,7 @@ async def read_history(
             quality,
             definition_filters,
             additional_key,
+            include_additional,
         )
         if additional_key is None:
             await _append_raw_points(
@@ -96,6 +100,7 @@ async def read_history(
                 end,
                 quality,
                 definition_filters,
+                include_additional,
             )
     elif resolution == "raw":
         if additional_key is None:
@@ -107,6 +112,7 @@ async def read_history(
                 end,
                 quality,
                 definition_filters,
+                include_additional,
             )
     elif resolution in {"20min", "hour", "day"}:
         await _append_aggregate_points(
@@ -119,6 +125,7 @@ async def read_history(
             quality,
             definition_filters,
             additional_key,
+            include_additional,
         )
     else:
         raise ValueError("resolution must be auto, raw, 20min, hour or day")
@@ -135,6 +142,7 @@ async def _append_raw_points(
     end: datetime,
     quality: int | None,
     definition_ids: tuple[str, ...],
+    include_additional: bool,
 ) -> None:
     if start >= end:
         return
@@ -157,7 +165,7 @@ async def _append_raw_points(
                 weighted_average_price=sale.price,
                 amount=sale.amount,
                 sale_count=1,
-                additional=sale.additional,
+                additional=sale.additional if include_additional else None,
             )
         )
 
@@ -172,6 +180,7 @@ async def _append_aggregate_points(
     quality: int | None,
     definition_ids: tuple[str, ...],
     additional_key: str | None,
+    include_additional: bool,
 ) -> None:
     if start >= end:
         return
@@ -199,7 +208,7 @@ async def _append_aggregate_points(
                 weighted_average_price=aggregate.weighted_price_sum / Decimal(amount_sum),
                 amount=amount_sum,
                 sale_count=sale_count,
-                additional=aggregate.additional,
+                additional=aggregate.additional if include_additional else None,
             )
         )
 

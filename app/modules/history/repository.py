@@ -375,9 +375,18 @@ async def prune_aggregates(
     session: AsyncSession,
     max_points: int,
     item_id: str | None = None,
+    module_max_points: int | None = None,
 ) -> int:
     if max_points <= 0:
         raise ValueError("max_points must be positive")
+    if module_max_points is not None and module_max_points <= 0:
+        raise ValueError("module_max_points must be positive")
+    effective_max_points = max_points
+    module_ids = (
+        _weapon_module_item_ids() if module_max_points is not None else frozenset()
+    )
+    if item_id is not None and item_id in module_ids:
+        effective_max_points = module_max_points or max_points
     resolution_order = case(
         (SaleAggregate.resolution == "20min", 0),
         (SaleAggregate.resolution == "hour", 1),
@@ -386,6 +395,7 @@ async def prune_aggregates(
     )
     ranked_query = select(
         SaleAggregate.id.label("id"),
+        SaleAggregate.item_id.label("item_id"),
         func.row_number()
         .over(
             partition_by=SaleAggregate.item_id,
@@ -400,7 +410,13 @@ async def prune_aggregates(
     if item_id is not None:
         ranked_query = ranked_query.where(SaleAggregate.item_id == item_id)
     ranked = ranked_query.subquery()
-    stale_ids = select(ranked.c.id).where(ranked.c.position > max_points)
+    max_position = effective_max_points
+    if item_id is None and module_ids:
+        max_position = case(
+            (ranked.c.item_id.in_(module_ids), module_max_points),
+            else_=max_points,
+        )
+    stale_ids = select(ranked.c.id).where(ranked.c.position > max_position)
     result = await session.execute(delete(SaleAggregate).where(SaleAggregate.id.in_(stale_ids)))
     return int(getattr(result, "rowcount", 0) or 0)
 
@@ -409,8 +425,9 @@ async def prune_hourly_aggregates(
     session: AsyncSession,
     max_points: int,
     item_id: str | None = None,
+    module_max_points: int | None = None,
 ) -> int:
-    return await prune_aggregates(session, max_points, item_id)
+    return await prune_aggregates(session, max_points, item_id, module_max_points)
 
 
 async def compact_raw_overflow_to_20min(
@@ -633,6 +650,7 @@ async def compact_history(
     hourly_retention_hours: int = 24 * 60,
     max_raw_points_per_item: int = 10_000,
     max_aggregate_points_per_item: int = 15_000,
+    max_module_aggregate_points_per_item: int | None = None,
 ) -> tuple[int, int, int]:
     current = now or datetime.now(UTC)
     raw_boundary = (current - timedelta(hours=raw_retention_hours)).replace(
@@ -666,6 +684,7 @@ async def compact_history(
     aggregate_count = twenty_minute_count + daily_count + await prune_aggregates(
         session,
         max_aggregate_points_per_item,
+        module_max_points=max_module_aggregate_points_per_item,
     )
     return raw_count, lots_count, aggregate_count
 

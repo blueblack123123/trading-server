@@ -99,6 +99,9 @@ def _history_collection_settings() -> HistoryCollectionSettings:
         hourly_retention_hours=settings.history_hourly_retention_hours,
         max_raw_points_per_item=settings.history_max_raw_points_per_item,
         max_aggregate_points_per_item=settings.history_max_aggregate_points_per_item,
+        max_module_aggregate_points_per_item=(
+            settings.history_max_module_aggregate_points_per_item
+        ),
         compaction_interval_seconds=settings.history_compaction_interval_seconds,
     )
 

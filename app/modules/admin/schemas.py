@@ -28,6 +28,7 @@ class HistoryCollectionSettings(BaseModel):
     hourly_retention_hours: int
     max_raw_points_per_item: int
     max_aggregate_points_per_item: int
+    max_module_aggregate_points_per_item: int
     compaction_interval_seconds: int
 
 

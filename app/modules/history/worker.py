@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
-from math import ceil
 from time import monotonic, time
 from typing import Any
 
@@ -103,11 +102,12 @@ class HistoryWorker:
 
     async def _run_backfill_collection(self, client: StalzoneClient) -> None:
         while True:
-            item = await self._claim_next_backfill()
-            if item is None:
+            claimed = await self._claim_next_backfill()
+            if claimed is None:
                 await asyncio.sleep(settings.history_worker_idle_seconds)
                 continue
-            await self._backfill_history(client, item)
+            item, start_offset = claimed
+            await self._backfill_history(client, item, start_offset)
 
     async def _acquire_live_request(self) -> None:
         await self._live_rate_limiter.acquire()
@@ -212,7 +212,7 @@ class HistoryWorker:
             state.next_poll_at = now + timedelta(minutes=5)
             return item, state
 
-    async def _claim_next_backfill(self) -> MarketItem | None:
+    async def _claim_next_backfill(self) -> tuple[MarketItem, int] | None:
         now = datetime.now(UTC)
         async with async_session_factory() as session, session.begin():
             statement = (
@@ -232,8 +232,9 @@ class HistoryWorker:
             if row is None:
                 return None
             item, state = row.tuple()
+            start_offset = max(0, int(state.backfill_offset or 0))
             state.backfill_next_at = now + timedelta(minutes=10)
-            return item
+            return item, start_offset
 
     async def _poll_history(
         self,
@@ -398,11 +399,17 @@ class HistoryWorker:
             state.next_poll_at.isoformat(),
         )
 
-    async def _backfill_history(self, client: StalzoneClient, item: MarketItem) -> None:
+    async def _backfill_history(
+        self,
+        client: StalzoneClient,
+        item: MarketItem,
+        start_offset: int,
+    ) -> None:
         try:
             records, total, target, offset, reached_end = await self._download_backfill(
                 client,
                 item.id,
+                start_offset,
             )
             complete_records = _exclude_partial_oldest_hour(records, reached_end)
             await self._save_backfill_success(
@@ -411,6 +418,7 @@ class HistoryWorker:
                 total,
                 target,
                 offset,
+                reached_end,
             )
         except httpx.HTTPStatusError as exc:
             await self._save_backfill_error(item.id, _retry_after_seconds(exc.response))
@@ -427,13 +435,16 @@ class HistoryWorker:
         self,
         client: StalzoneClient,
         item_id: str,
+        start_offset: int = 0,
     ) -> tuple[list[SaleRecord], int, int, int, bool]:
         raw_boundary = _raw_history_boundary()
         old_records: dict[str, SaleRecord] = {}
         total = 0
         target = 0
-        offset = 0
-        processed_offset = 0
+        overlap = max(0, settings.history_backfill_page_overlap)
+        offset = max(0, start_offset - overlap) if start_offset > 0 else 0
+        processed_offset = start_offset
+        chunk_end = start_offset + settings.history_backfill_max_records
         reached_end = False
 
         while True:
@@ -452,11 +463,13 @@ class HistoryWorker:
                     old_records[record.fingerprint] = record
 
             reached_end = not page or processed_offset >= total
-            if reached_end or len(old_records) >= target:
+            reached_target = target > 0 and processed_offset >= target
+            reached_chunk = processed_offset >= min(target or chunk_end, chunk_end)
+            if reached_end or reached_target or reached_chunk:
                 break
 
-            overlap = min(settings.history_backfill_page_overlap, max(0, len(page) - 1))
-            offset += len(page) - overlap
+            page_overlap = min(overlap, max(0, len(page) - 1))
+            offset += len(page) - page_overlap
 
         return list(old_records.values()), total, target, processed_offset, reached_end
 
@@ -467,6 +480,7 @@ class HistoryWorker:
         total: int,
         target: int,
         offset: int,
+        reached_end: bool,
     ) -> None:
         now = datetime.now(UTC)
         async with async_session_factory() as session, session.begin():
@@ -483,21 +497,26 @@ class HistoryWorker:
                 session,
                 settings.history_max_aggregate_points_per_item,
                 item_id,
+                settings.history_max_module_aggregate_points_per_item,
             )
             state = await session.get(HistoryPollState, item_id, with_for_update=True)
             if state is None:
                 return
             state.backfill_offset = offset
             state.backfill_target = target
-            state.backfill_complete = True
+            state.backfill_complete = reached_end or offset >= target
             state.backfill_next_at = now
 
         logger.info(
-            "Backfilled history %s: source=%s/%s target=%s hourly=%s daily=%s pruned=%s",
+            (
+                "Backfilled history %s: source=%s/%s target=%s complete=%s "
+                "hourly=%s daily=%s pruned=%s"
+            ),
             item_id,
             offset,
             total,
             target,
+            reached_end,
             replaced_hourly,
             replaced_daily,
             pruned,
@@ -536,6 +555,9 @@ class HistoryWorker:
                 hourly_retention_hours=settings.history_hourly_retention_hours,
                 max_raw_points_per_item=settings.history_max_raw_points_per_item,
                 max_aggregate_points_per_item=settings.history_max_aggregate_points_per_item,
+                max_module_aggregate_points_per_item=(
+                    settings.history_max_module_aggregate_points_per_item
+                ),
             )
         logger.info(
             "Compacted raw=%s inactive_lots=%s old_hourly=%s",
@@ -589,17 +611,12 @@ def _filter_new_records(
 def _calculate_backfill_target(total: int, item_id: str | None = None) -> int:
     if total <= 0:
         return 0
-    fraction_target = ceil(total * settings.history_backfill_fraction)
-    target = min(
-        total,
-        settings.history_backfill_max_records,
-        max(settings.history_backfill_min_records, fraction_target),
-    )
+    target = min(total, settings.history_backfill_max_records)
     if item_id is not None and _is_artifact_item_id(item_id):
         artifact_target = settings.history_max_aggregate_points_per_item * 20
         target = max(target, min(total, artifact_target))
     if item_id is not None and _is_weapon_module_item_id(item_id):
-        module_target = settings.history_max_aggregate_points_per_item * 20
+        module_target = settings.history_max_module_aggregate_points_per_item * 20
         target = max(target, min(total, module_target))
     return target
 

@@ -23,3 +23,4 @@ config/market_items.json
 
 # Local research data
 data_samples/
+external/

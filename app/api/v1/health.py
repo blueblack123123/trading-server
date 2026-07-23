@@ -26,5 +26,8 @@ async def capabilities() -> dict[str, object]:
             "hourly_hours": settings.history_hourly_retention_hours,
             "max_raw_points_per_item": settings.history_max_raw_points_per_item,
             "max_aggregate_points_per_item": settings.history_max_aggregate_points_per_item,
+            "max_module_aggregate_points_per_item": (
+                settings.history_max_module_aggregate_points_per_item
+            ),
         },
     }

@@ -1,5 +1,7 @@
 import json
+import os
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 from app.clients.exbo_database import ExboDatabaseClient
 from app.core.config import settings
@@ -22,13 +24,26 @@ class MarketItemsConfigService:
 
     def save_config(self, items: list[MarketItemConfig]) -> None:
         self.config_path.parent.mkdir(parents=True, exist_ok=True)
+        file_stat = self.config_path.stat() if self.config_path.exists() else None
+        file_mode = file_stat.st_mode & 0o777 if file_stat is not None else 0o644
 
         data = [item.model_dump(mode="json") for item in items]
 
-        self.config_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
+        with NamedTemporaryFile(
+            "w",
             encoding="utf-8",
-        )
+            dir=self.config_path.parent,
+            delete=False,
+        ) as file:
+            file.write(json.dumps(data, ensure_ascii=False, indent=2))
+            file.write("\n")
+            temp_path = Path(file.name)
+
+        temp_path.chmod(file_mode)
+        chown = getattr(os, "chown", None)
+        if chown is not None and file_stat is not None:
+            chown(temp_path, file_stat.st_uid, file_stat.st_gid)
+        temp_path.replace(self.config_path)
 
     def sync_items(self) -> list[MarketItemConfig]:
         current_items = {item.id: item for item in self.get_config()}

@@ -54,9 +54,21 @@ services:
       DATABASE_URL: postgresql+asyncpg://trading:trading@db:5432/trading
     volumes:
       - ./config:/app/config
+      - ./external:/app/external
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  exbo-database-updater:
+    build: .
+    container_name: trading-exbo-database-updater
+    restart: unless-stopped
+    command: ["/app/.venv/bin/python", "-m", "app.modules.admin.exbo_updater"]
+    env_file:
+      - .env
+    volumes:
+      - ./config:/app/config
+      - ./external:/app/external
 
 volumes:
   postgres-data:

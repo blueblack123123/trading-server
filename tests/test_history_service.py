@@ -154,6 +154,41 @@ def test_aggregate_history_points_include_additional_payload(
     }
 
 
+def test_aggregate_history_points_can_omit_additional_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get_aggregates = AsyncMock(
+        return_value=[
+            SimpleNamespace(
+                bucket_start=datetime(2026, 6, 29, 10, tzinfo=UTC),
+                quality=3,
+                min_price=Decimal("100"),
+                max_price=Decimal("100"),
+                price_sum=Decimal("100"),
+                weighted_price_sum=Decimal("100"),
+                amount_sum=1,
+                sale_count=1,
+                additional={"attributes": [{"definitionId": "concentration_aff"}]},
+            )
+        ]
+    )
+    monkeypatch.setattr(service, "get_aggregates", get_aggregates)
+
+    result = asyncio.run(
+        service.read_history(
+            session=AsyncMock(),
+            item_id="item-1",
+            start=datetime(2026, 6, 29, tzinfo=UTC),
+            end=datetime(2026, 6, 30, tzinfo=UTC),
+            quality=None,
+            resolution="hour",
+            include_additional=False,
+        )
+    )
+
+    assert result.points[0].additional is None
+
+
 def test_aggregate_history_passes_definition_and_additional_key_filters(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

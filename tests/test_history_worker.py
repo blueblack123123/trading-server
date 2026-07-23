@@ -127,35 +127,37 @@ def test_extremely_rare_status_uses_weekly_interval() -> None:
 
 def test_backfill_target_applies_floor_fraction_and_cap() -> None:
     assert _calculate_backfill_target(3_000) == 3_000
-    assert _calculate_backfill_target(10_000) == 5_000
-    assert _calculate_backfill_target(20_000) == 6_000
-    assert _calculate_backfill_target(50_000) == 15_000
-    assert _calculate_backfill_target(100_000) == 20_000
+    assert _calculate_backfill_target(10_000) == 10_000
+    assert _calculate_backfill_target(20_000) == 20_000
+    assert _calculate_backfill_target(50_000) == 40_000
+    assert _calculate_backfill_target(100_000) == 40_000
 
 
 def test_artifact_backfill_target_uses_aggregate_capacity_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "history_backfill_min_records", 5_000)
-    monkeypatch.setattr(settings, "history_backfill_fraction", 0.30)
-    monkeypatch.setattr(settings, "history_backfill_max_records", 20_000)
-    monkeypatch.setattr(settings, "history_max_aggregate_points_per_item", 15_000)
+    monkeypatch.setattr(settings, "history_backfill_fraction", 1.0)
+    monkeypatch.setattr(settings, "history_backfill_max_records", 40_000)
+    monkeypatch.setattr(settings, "history_max_aggregate_points_per_item", 40_000)
     monkeypatch.setattr(
         "app.modules.history.worker._is_artifact_item_id",
         lambda item_id: item_id == "4lml",
     )
 
-    assert _calculate_backfill_target(728_975, "4lml") == 300_000
-    assert _calculate_backfill_target(728_975, "not-artifact") == 20_000
+    assert _calculate_backfill_target(728_975, "4lml") == 728_975
+    assert _calculate_backfill_target(900_000, "4lml") == 800_000
+    assert _calculate_backfill_target(728_975, "not-artifact") == 40_000
 
 
 def test_weapon_module_backfill_target_uses_aggregate_capacity_proxy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(settings, "history_backfill_min_records", 5_000)
-    monkeypatch.setattr(settings, "history_backfill_fraction", 0.30)
-    monkeypatch.setattr(settings, "history_backfill_max_records", 20_000)
-    monkeypatch.setattr(settings, "history_max_aggregate_points_per_item", 15_000)
+    monkeypatch.setattr(settings, "history_backfill_fraction", 1.0)
+    monkeypatch.setattr(settings, "history_backfill_max_records", 40_000)
+    monkeypatch.setattr(settings, "history_max_aggregate_points_per_item", 40_000)
+    monkeypatch.setattr(settings, "history_max_module_aggregate_points_per_item", 500_000)
     monkeypatch.setattr(
         "app.modules.history.worker._is_artifact_item_id",
         lambda item_id: False,
@@ -165,8 +167,9 @@ def test_weapon_module_backfill_target_uses_aggregate_capacity_proxy(
         lambda item_id: item_id == "1pyq",
     )
 
-    assert _calculate_backfill_target(500_000, "1pyq") == 300_000
-    assert _calculate_backfill_target(500_000, "not-module") == 20_000
+    assert _calculate_backfill_target(500_000, "1pyq") == 500_000
+    assert _calculate_backfill_target(900_000, "1pyq") == 900_000
+    assert _calculate_backfill_target(500_000, "not-module") == 40_000
 
 
 def test_backfill_rate_uses_maximum_when_live_backlog_is_low(
@@ -254,8 +257,8 @@ def test_backfill_excludes_recent_records_and_overlaps_pages(
 
     assert total == 6
     assert target == 3
-    assert offset == 5
+    assert offset == 3
     assert reached_end is False
-    assert len(records) == 4
+    assert len(records) == 2
     assert all(record.sold_at.year == 2020 for record in records)
-    assert [call.kwargs["offset"] for call in client.get_auction_history.await_args_list] == [0, 2]
+    assert [call.kwargs["offset"] for call in client.get_auction_history.await_args_list] == [0]
