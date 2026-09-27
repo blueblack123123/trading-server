@@ -461,7 +461,20 @@ class CraftAnalyzer:
 def _recipe_path() -> Path:
     if settings.craft_analysis_recipe_path:
         return Path(settings.craft_analysis_recipe_path)
-    return Path(settings.exbo_database_path) / RECIPE_FILENAME
+    database_path = Path(settings.exbo_database_path)
+    candidates = [
+        database_path / RECIPE_FILENAME,
+        database_path / "ru" / RECIPE_FILENAME,
+        database_path / "global" / RECIPE_FILENAME,
+    ]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    found = next(database_path.glob(f"**/{RECIPE_FILENAME}"), None)
+    if found is not None:
+        return found
+    return candidates[0]
 
 
 def _recipe_item_ids(recipes: list[HideoutRecipe]) -> set[str]:

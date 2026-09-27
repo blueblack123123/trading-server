@@ -1,15 +1,20 @@
 import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import pytest
+
+from app.core.config import settings
 from app.modules.crafting.models import CraftAnalysisResult, CraftAnalysisRun
 from app.modules.crafting.service import (
     CraftAnalyzer,
     HideoutRecipe,
     PricePoint,
     RecipeComponent,
+    _recipe_path,
     read_average_prices,
     read_latest_analysis,
 )
@@ -128,6 +133,20 @@ def test_read_latest_analysis_returns_all_saved_results() -> None:
     assert result.run_id == 3
     assert len(result.results) == 1
     assert result.results[0].item_name == "Гороховый суп"
+
+
+def test_recipe_path_prefers_ru_database_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "stalzone-database"
+    recipe_path = root / "ru" / "hideout_recipes.json"
+    recipe_path.parent.mkdir(parents=True)
+    recipe_path.write_text('{"recipes": []}', encoding="utf-8")
+    monkeypatch.setattr(settings, "exbo_database_path", str(root))
+    monkeypatch.setattr(settings, "craft_analysis_recipe_path", "")
+
+    assert _recipe_path() == recipe_path
 
 
 def _recipe(
