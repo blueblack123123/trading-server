@@ -14,6 +14,7 @@ from app.modules.crafting.service import (
     HideoutRecipe,
     PricePoint,
     RecipeComponent,
+    _liquidity_status,
     _recipe_path,
     read_average_prices,
     read_latest_analysis,
@@ -44,6 +45,10 @@ def test_craft_analyzer_prefers_buying_ingredient_when_market_is_cheaper() -> No
 
     assert result.craft_cost == Decimal("45")
     assert result.is_profitable is True
+    assert result.market_amount == 1
+    assert result.market_sale_count == 1
+    assert result.liquidity_score == Decimal("1")
+    assert result.liquidity_status == "low"
     assert result.ingredients[0].decision == "buy"
     assert result.ingredients[0].craft_price == Decimal("20")
 
@@ -91,6 +96,13 @@ def test_read_average_prices_uses_saved_hourly_aggregates() -> None:
     assert result["item-1"].amount == 3
 
 
+def test_liquidity_status_uses_daily_sale_thresholds() -> None:
+    assert _liquidity_status(Decimal("0")) == "none"
+    assert _liquidity_status(Decimal("1")) == "low"
+    assert _liquidity_status(Decimal("5")) == "medium"
+    assert _liquidity_status(Decimal("20")) == "high"
+
+
 def test_read_latest_analysis_returns_all_saved_results() -> None:
     session = AsyncMock()
     session.scalar.return_value = CraftAnalysisRun(
@@ -118,6 +130,10 @@ def test_read_latest_analysis_returns_all_saved_results() -> None:
                 market_buy_price=Decimal("200"),
                 profit=Decimal("155"),
                 margin_percent=Decimal("344.4444"),
+                market_amount=3,
+                market_sale_count=2,
+                liquidity_score=Decimal("2"),
+                liquidity_status="low",
                 is_profitable=True,
                 recommendation="craft",
                 status="ok",

@@ -60,6 +60,10 @@ class CraftAnalysisResult(Base):
     market_buy_price: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
     profit: Mapped[Decimal | None] = mapped_column(Numeric(24, 4))
     margin_percent: Mapped[Decimal | None] = mapped_column(Numeric(12, 4))
+    market_amount: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    market_sale_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    liquidity_score: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False, default=0)
+    liquidity_status: Mapped[str] = mapped_column(String(32), nullable=False, default="none")
 
     is_profitable: Mapped[bool] = mapped_column(nullable=False, default=False)
     recommendation: Mapped[str] = mapped_column(String(32), nullable=False)

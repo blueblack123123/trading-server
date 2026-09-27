@@ -78,6 +78,10 @@ class RecipeAnalysis:
     market_buy_price: Decimal | None
     profit: Decimal | None
     margin_percent: Decimal | None
+    market_amount: int
+    market_sale_count: int
+    liquidity_score: Decimal
+    liquidity_status: str
     is_profitable: bool
     recommendation: str
     status: str
@@ -102,7 +106,7 @@ async def run_craft_analysis(
     prices = await read_average_prices(session, item_ids, current, period_hours)
     item_names = await read_item_names(session, item_ids)
 
-    analyzer = CraftAnalyzer(recipes, prices, item_names)
+    analyzer = CraftAnalyzer(recipes, prices, item_names, period_hours=period_hours)
     analyses = [analyzer.analyze_recipe(recipe, min_margin_percent) for recipe in recipes]
     return await save_analysis(session, analyses, period_hours, min_margin_percent)
 
@@ -149,6 +153,10 @@ async def read_latest_analysis(session: AsyncSession) -> CraftAnalysisResponse |
                 market_buy_price=row.market_buy_price,
                 profit=row.profit,
                 margin_percent=row.margin_percent,
+                market_amount=row.market_amount,
+                market_sale_count=row.market_sale_count,
+                liquidity_score=row.liquidity_score,
+                liquidity_status=row.liquidity_status,
                 is_profitable=row.is_profitable,
                 recommendation=row.recommendation,
                 status=row.status,
@@ -240,6 +248,10 @@ async def save_analysis(
                 market_buy_price=analysis.market_buy_price,
                 profit=analysis.profit,
                 margin_percent=analysis.margin_percent,
+                market_amount=analysis.market_amount,
+                market_sale_count=analysis.market_sale_count,
+                liquidity_score=analysis.liquidity_score,
+                liquidity_status=analysis.liquidity_status,
                 is_profitable=analysis.is_profitable,
                 recommendation=analysis.recommendation,
                 status=analysis.status,
@@ -299,12 +311,15 @@ class CraftAnalyzer:
         recipes: list[HideoutRecipe],
         prices: dict[str, PricePoint],
         item_names: dict[str, str],
+        *,
+        period_hours: int = 24,
     ) -> None:
         self.recipes_by_result: dict[str, list[HideoutRecipe]] = defaultdict(list)
         for recipe in recipes:
             self.recipes_by_result[recipe.result.item_id].append(recipe)
         self.prices = prices
         self.item_names = item_names
+        self.period_hours = max(1, period_hours)
         self.cost_cache: dict[str, CostDecision] = {}
 
     def analyze_recipe(
@@ -312,10 +327,15 @@ class CraftAnalyzer:
         recipe: HideoutRecipe,
         min_margin_percent: Decimal,
     ) -> RecipeAnalysis:
-        sell_price = self._market_price(recipe.result.item_id)
+        price_point = self.prices.get(recipe.result.item_id)
+        sell_price = price_point.price if price_point is not None else None
         craft_cost = self._recipe_unit_cost(recipe, use_optimal_ingredients=True)
         direct_craft_cost = self._recipe_unit_cost(recipe, use_optimal_ingredients=False)
         ingredients = self._ingredient_decisions(recipe)
+        market_amount = price_point.amount if price_point is not None else 0
+        market_sale_count = price_point.sale_count if price_point is not None else 0
+        liquidity_score = Decimal(market_sale_count) * Decimal("24") / Decimal(self.period_hours)
+        liquidity_status = _liquidity_status(liquidity_score)
 
         profit = None
         margin_percent = None
@@ -340,6 +360,10 @@ class CraftAnalyzer:
             market_buy_price=sell_price,
             profit=profit,
             margin_percent=margin_percent,
+            market_amount=market_amount,
+            market_sale_count=market_sale_count,
+            liquidity_score=liquidity_score,
+            liquidity_status=liquidity_status,
             is_profitable=is_profitable,
             recommendation=recommendation,
             status=status,
@@ -456,6 +480,16 @@ class CraftAnalyzer:
     def _market_price(self, item_id: str) -> Decimal | None:
         point = self.prices.get(item_id)
         return point.price if point is not None else None
+
+
+def _liquidity_status(daily_sale_count: Decimal) -> str:
+    if daily_sale_count >= Decimal("20"):
+        return "high"
+    if daily_sale_count >= Decimal("5"):
+        return "medium"
+    if daily_sale_count > 0:
+        return "low"
+    return "none"
 
 
 def _recipe_path() -> Path:

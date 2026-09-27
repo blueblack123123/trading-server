@@ -17,6 +17,10 @@ class CraftAnalysisResultResponse(BaseModel):
     market_buy_price: Decimal | None
     profit: Decimal | None
     margin_percent: Decimal | None
+    market_amount: int
+    market_sale_count: int
+    liquidity_score: Decimal
+    liquidity_status: str
     is_profitable: bool
     recommendation: str
     status: str
