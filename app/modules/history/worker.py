@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.db.session import async_session_factory
 from app.modules.admin.schemas import MarketItemConfig, MarketStatus
 from app.modules.admin.service import MarketItemsConfigService
+from app.modules.crafting.service import run_craft_analysis
 from app.modules.history.domain import LotRecord, SaleRecord, parse_lot, parse_sale
 from app.modules.history.models import HistoryPollState, LotPollState, MarketItem
 from app.modules.history.repository import (
@@ -80,6 +81,7 @@ class HistoryWorker:
             await asyncio.gather(
                 self._run_live_collection(client),
                 self._run_backfill_collection(client),
+                self._run_craft_analysis(),
             )
 
     async def _run_live_collection(self, client: StalzoneClient) -> None:
@@ -108,6 +110,28 @@ class HistoryWorker:
                 continue
             item, start_offset = claimed
             await self._backfill_history(client, item, start_offset)
+
+    async def _run_craft_analysis(self) -> None:
+        if not settings.craft_analysis_enabled:
+            logger.info("Craft analysis worker is disabled")
+            return
+
+        await asyncio.sleep(10)
+        while True:
+            started_at = datetime.now(UTC)
+            try:
+                async with async_session_factory() as session:
+                    run = await run_craft_analysis(session, now=started_at)
+                logger.info(
+                    "Craft analysis run %s complete: recipes=%s analyzed=%s profitable=%s",
+                    run.id,
+                    run.recipes_count,
+                    run.analyzed_count,
+                    run.profitable_count,
+                )
+            except Exception:
+                logger.exception("Craft analysis run failed")
+            await asyncio.sleep(settings.craft_analysis_interval_seconds)
 
     async def _acquire_live_request(self) -> None:
         await self._live_rate_limiter.acquire()
@@ -485,12 +509,8 @@ class HistoryWorker:
         now = datetime.now(UTC)
         async with async_session_factory() as session, session.begin():
             hourly_boundary = _hourly_history_boundary(now)
-            hourly_records = [
-                record for record in records if record.sold_at >= hourly_boundary
-            ]
-            daily_records = [
-                record for record in records if record.sold_at < hourly_boundary
-            ]
+            hourly_records = [record for record in records if record.sold_at >= hourly_boundary]
+            daily_records = [record for record in records if record.sold_at < hourly_boundary]
             replaced_hourly = await replace_hourly_aggregates(session, hourly_records)
             replaced_daily = await replace_daily_aggregates(session, daily_records)
             pruned = await prune_aggregates(

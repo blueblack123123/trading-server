@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     history_worker_idle_seconds: float = 2.0
     lots_cache_ttl_seconds: int = 15
 
+    craft_analysis_enabled: bool = True
+    craft_analysis_interval_seconds: int = 3600
+    craft_analysis_period_hours: int = 24
+    craft_analysis_min_margin_percent: float = 20.0
+    craft_analysis_keep_runs: int = 48
+    craft_analysis_recipe_path: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
