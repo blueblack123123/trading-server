@@ -230,10 +230,11 @@ def _group_aggregate_values(
         values.setdefault("additional", aggregate_additional)
         current_min = values["min_price"]
         current_max = values["max_price"]
-        values["min_price"] = price if current_min is None else min(current_min, price)
-        values["max_price"] = price if current_max is None else max(current_max, price)
-        values["price_sum"] += price
-        values["weighted_price_sum"] += price * amount
+        unit_price = _sale_unit_price(price, amount)
+        values["min_price"] = unit_price if current_min is None else min(current_min, unit_price)
+        values["max_price"] = unit_price if current_max is None else max(current_max, unit_price)
+        values["price_sum"] += unit_price
+        values["weighted_price_sum"] += price
         values["amount_sum"] += amount
         values["sale_count"] += 1
 
@@ -249,6 +250,12 @@ def _group_aggregate_values(
         }
         for (item_id, bucket, quality, additional_key), values in grouped.items()
     ]
+
+
+def _sale_unit_price(price: Decimal, amount: int) -> Decimal:
+    if amount <= 0:
+        raise ValueError("sale amount must be positive")
+    return price / Decimal(amount)
 
 
 async def _upsert_aggregate_values(

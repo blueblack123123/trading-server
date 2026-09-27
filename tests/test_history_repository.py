@@ -62,6 +62,38 @@ def test_definition_id_variants_include_module_suffixes_and_base_id() -> None:
     )
 
 
+def test_group_aggregate_values_normalizes_stack_total_to_unit_price() -> None:
+    values = _group_aggregate_values(
+        [
+            (
+                "item-1",
+                datetime(2026, 6, 29, 10, 15, tzinfo=UTC),
+                3,
+                Decimal("9000"),
+                None,
+                {},
+            ),
+            (
+                "item-1",
+                datetime(2026, 6, 29, 10, 45, tzinfo=UTC),
+                1,
+                Decimal("4000"),
+                None,
+                {},
+            ),
+        ],
+        resolution="hour",
+    )
+
+    assert len(values) == 1
+    assert values[0]["min_price"] == Decimal("3000")
+    assert values[0]["max_price"] == Decimal("4000")
+    assert values[0]["price_sum"] == Decimal("7000")
+    assert values[0]["weighted_price_sum"] == Decimal("13000")
+    assert values[0]["amount_sum"] == 4
+    assert values[0]["sale_count"] == 2
+
+
 def test_artifact_aggregates_ignore_unique_roll_fields_and_keep_quality() -> None:
     rows = [
         (

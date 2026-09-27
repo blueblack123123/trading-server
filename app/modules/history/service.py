@@ -154,15 +154,16 @@ async def _append_raw_points(
         quality,
         definition_ids,
     ):
+        unit_price = sale.price / Decimal(sale.amount)
         points.append(
             HistoryPoint(
                 timestamp=sale.sold_at,
                 resolution="raw",
                 quality=sale.quality,
-                min_price=sale.price,
-                max_price=sale.price,
-                average_price=sale.price,
-                weighted_average_price=sale.price,
+                min_price=unit_price,
+                max_price=unit_price,
+                average_price=unit_price,
+                weighted_average_price=unit_price,
                 amount=sale.amount,
                 sale_count=1,
                 additional=sale.additional if include_additional else None,
