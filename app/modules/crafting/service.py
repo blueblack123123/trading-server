@@ -101,7 +101,10 @@ async def run_craft_analysis(
         str(settings.craft_analysis_min_margin_percent)
     )
     current = now or datetime.now(UTC)
-    recipes = load_hideout_recipes(recipe_path or _recipe_path())
+    recipes = filter_disabled_feature_recipes(
+        load_hideout_recipes(recipe_path or _recipe_path()),
+        _disabled_recipe_features(),
+    )
     item_ids = _recipe_item_ids(recipes)
     prices = await read_average_prices(session, item_ids, current, period_hours)
     item_names = await read_item_names(session, item_ids)
@@ -303,6 +306,29 @@ def load_hideout_recipes(path: Path) -> list[HideoutRecipe]:
             )
         )
     return recipes
+
+
+def filter_disabled_feature_recipes(
+    recipes: list[HideoutRecipe],
+    disabled_features: frozenset[str],
+) -> list[HideoutRecipe]:
+    if not disabled_features:
+        return recipes
+    return [
+        recipe
+        for recipe in recipes
+        if recipe_features(recipe).isdisjoint(disabled_features)
+    ]
+
+
+def recipe_features(recipe: HideoutRecipe) -> frozenset[str]:
+    requirements = recipe.raw.get("requirements")
+    if not isinstance(requirements, dict):
+        return frozenset()
+    features = requirements.get("features")
+    if not isinstance(features, list):
+        return frozenset()
+    return frozenset(str(feature).strip() for feature in features if str(feature).strip())
 
 
 class CraftAnalyzer:
@@ -509,6 +535,14 @@ def _recipe_path() -> Path:
     if found is not None:
         return found
     return candidates[0]
+
+
+def _disabled_recipe_features() -> frozenset[str]:
+    return frozenset(
+        feature.strip()
+        for feature in settings.craft_analysis_disabled_recipe_features.split(",")
+        if feature.strip()
+    )
 
 
 def _recipe_item_ids(recipes: list[HideoutRecipe]) -> set[str]:

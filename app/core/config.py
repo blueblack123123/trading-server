@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     craft_analysis_min_margin_percent: float = 20.0
     craft_analysis_keep_runs: int = 48
     craft_analysis_recipe_path: str = ""
+    craft_analysis_disabled_recipe_features: str = "water_collector"
 
 
 @lru_cache

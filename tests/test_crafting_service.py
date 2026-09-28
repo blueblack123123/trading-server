@@ -16,6 +16,7 @@ from app.modules.crafting.service import (
     RecipeComponent,
     _liquidity_status,
     _recipe_path,
+    filter_disabled_feature_recipes,
     read_average_prices,
     read_latest_analysis,
 )
@@ -103,6 +104,28 @@ def test_liquidity_status_uses_daily_sale_thresholds() -> None:
     assert _liquidity_status(Decimal("20")) == "high"
 
 
+def test_filter_disabled_feature_recipes_excludes_water_collector_recipe() -> None:
+    water_collector_recipe = _recipe(
+        "clean_water",
+        1,
+        [("plastic_bottle", 1)],
+        features=["water_collector"],
+    )
+    kitchen_recipe = _recipe(
+        "clean_water",
+        5,
+        [("water_carrier", 10), ("plastic_bottle", 5)],
+        features=["gauze_filter", "kitchen_items"],
+    )
+
+    result = filter_disabled_feature_recipes(
+        [water_collector_recipe, kitchen_recipe],
+        frozenset({"water_collector"}),
+    )
+
+    assert result == [kitchen_recipe]
+
+
 def test_read_latest_analysis_returns_all_saved_results() -> None:
     session = AsyncMock()
     session.scalar.return_value = CraftAnalysisRun(
@@ -169,6 +192,7 @@ def _recipe(
     result_item_id: str,
     result_amount: int,
     ingredients: list[tuple[str, int]],
+    features: list[str] | None = None,
 ) -> HideoutRecipe:
     return HideoutRecipe(
         index=0,
@@ -179,5 +203,6 @@ def _recipe(
         raw={
             "result": [{"item": result_item_id, "amount": result_amount}],
             "ingredients": [{"item": item_id, "amount": amount} for item_id, amount in ingredients],
+            "requirements": {"features": features or []},
         },
     )
