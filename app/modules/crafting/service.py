@@ -50,6 +50,7 @@ class IngredientDecision:
     item_id: str
     item_name: str | None
     amount: int
+    craft_output_amount: int | None
     market_price: Decimal | None
     craft_price: Decimal | None
     chosen_price: Decimal | None
@@ -494,6 +495,9 @@ class CraftAnalyzer:
                     item_id=ingredient.item_id,
                     item_name=self.item_names.get(ingredient.item_id),
                     amount=ingredient.amount,
+                    craft_output_amount=(
+                        cost.recipe.result.amount if cost.recipe is not None else None
+                    ),
                     market_price=cost.market_price,
                     craft_price=cost.craft_price,
                     chosen_price=cost.chosen_price,
@@ -583,6 +587,7 @@ def _ingredient_to_dict(item: IngredientDecision) -> dict[str, Any]:
         "item_id": item.item_id,
         "item_name": item.item_name,
         "amount": item.amount,
+        "craft_output_amount": item.craft_output_amount,
         "market_price": _decimal_to_str(item.market_price),
         "craft_price": _decimal_to_str(item.craft_price),
         "chosen_price": _decimal_to_str(item.chosen_price),

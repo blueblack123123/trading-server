@@ -56,8 +56,8 @@ def test_craft_analyzer_prefers_buying_ingredient_when_market_is_cheaper() -> No
 
 def test_craft_analyzer_can_craft_missing_market_ingredient() -> None:
     recipes = [
-        _recipe("crafted_only", 1, [("raw_pea", 4)]),
-        _recipe("pea_soup", 1, [("crafted_only", 1)]),
+        _recipe("crafted_only", 2, [("raw_pea", 4)]),
+        _recipe("pea_soup", 1, [("crafted_only", 3)]),
     ]
     prices = {
         "raw_pea": PricePoint(Decimal("10"), amount=1, sale_count=1),
@@ -66,9 +66,10 @@ def test_craft_analyzer_can_craft_missing_market_ingredient() -> None:
 
     result = CraftAnalyzer(recipes, prices, {}).analyze_recipe(recipes[1], Decimal("20"))
 
-    assert result.craft_cost == Decimal("40")
+    assert result.craft_cost == Decimal("60")
     assert result.ingredients[0].decision == "craft"
-    assert result.ingredients[0].chosen_price == Decimal("40")
+    assert result.ingredients[0].chosen_price == Decimal("20")
+    assert result.ingredients[0].craft_output_amount == 2
 
 
 def test_read_average_prices_uses_saved_hourly_aggregates() -> None:
