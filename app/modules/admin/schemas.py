@@ -20,10 +20,15 @@ class MarketItemConfig(BaseModel):
 
 
 class HistoryCollectionSettings(BaseModel):
+    stalzone_requests_per_minute: int
     live_requests_per_minute: int
     backfill_min_requests_per_minute: int
     backfill_max_requests_per_minute: int
     backfill_live_backlog_threshold: int
+    lots_collection_enabled: bool
+    lots_requests_per_minute: int
+    lots_poll_interval_seconds: int
+    lots_page_size: int
     raw_retention_hours: int
     hourly_retention_hours: int
     max_raw_points_per_item: int
@@ -73,8 +78,20 @@ class HistoryStorageStatus(BaseModel):
     items: list[HistoryTopItemStorage]
 
 
+class RequestBudgetStatus(BaseModel):
+    stalzone_limit_per_minute: int
+    live_history_per_minute: int
+    backfill_per_minute: int
+    active_lots_per_minute: int
+    configured_workers_per_minute: int
+    spare_per_minute: int
+    utilization_percent: float
+    capped_by_global_limiter: bool
+
+
 class HistoryStatusResponse(BaseModel):
     generated_at: datetime
     settings: HistoryCollectionSettings
     backfill: HistoryBackfillStatus
     storage: HistoryStorageStatus
+    request_budget: RequestBudgetStatus

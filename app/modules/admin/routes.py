@@ -16,6 +16,7 @@ from app.modules.admin.schemas import (
     HistoryTopItemStorage,
     MarketItemConfig,
     MarketStatus,
+    RequestBudgetStatus,
 )
 from app.modules.admin.service import MarketItemsConfigService
 from app.modules.history.models import (
@@ -81,20 +82,27 @@ async def get_history_status(
     _: None = Depends(check_admin_key),
 ) -> HistoryStatusResponse:
     now = datetime.now(UTC)
+    backfill = await _read_backfill_status(session, now)
     return HistoryStatusResponse(
         generated_at=now,
         settings=_history_collection_settings(),
-        backfill=await _read_backfill_status(session, now),
+        backfill=backfill,
         storage=await _read_storage_status(session),
+        request_budget=_read_request_budget(backfill),
     )
 
 
 def _history_collection_settings() -> HistoryCollectionSettings:
     return HistoryCollectionSettings(
+        stalzone_requests_per_minute=settings.stalzone_requests_per_minute,
         live_requests_per_minute=settings.history_live_requests_per_minute,
         backfill_min_requests_per_minute=settings.history_backfill_requests_per_minute,
         backfill_max_requests_per_minute=settings.history_backfill_max_requests_per_minute,
         backfill_live_backlog_threshold=settings.history_backfill_live_backlog_threshold,
+        lots_collection_enabled=settings.lots_collection_enabled,
+        lots_requests_per_minute=settings.lots_requests_per_minute,
+        lots_poll_interval_seconds=settings.lots_poll_interval_seconds,
+        lots_page_size=settings.lots_page_size,
         raw_retention_hours=settings.history_raw_retention_hours,
         hourly_retention_hours=settings.history_hourly_retention_hours,
         max_raw_points_per_item=settings.history_max_raw_points_per_item,
@@ -103,6 +111,30 @@ def _history_collection_settings() -> HistoryCollectionSettings:
             settings.history_max_module_aggregate_points_per_item
         ),
         compaction_interval_seconds=settings.history_compaction_interval_seconds,
+    )
+
+
+def _read_request_budget(backfill: HistoryBackfillStatus) -> RequestBudgetStatus:
+    active_lots_rpm = (
+        settings.lots_requests_per_minute if settings.lots_collection_enabled else 0
+    )
+    configured_workers_rpm = (
+        settings.history_live_requests_per_minute
+        + backfill.selected_backfill_requests_per_minute
+        + active_lots_rpm
+    )
+    limit = settings.stalzone_requests_per_minute
+    return RequestBudgetStatus(
+        stalzone_limit_per_minute=limit,
+        live_history_per_minute=settings.history_live_requests_per_minute,
+        backfill_per_minute=backfill.selected_backfill_requests_per_minute,
+        active_lots_per_minute=active_lots_rpm,
+        configured_workers_per_minute=configured_workers_rpm,
+        spare_per_minute=max(0, limit - configured_workers_rpm),
+        utilization_percent=(
+            round(configured_workers_rpm / limit * 100, 1) if limit > 0 else 0.0
+        ),
+        capped_by_global_limiter=configured_workers_rpm > limit,
     )
 
 
