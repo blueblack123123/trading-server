@@ -5,7 +5,7 @@ from time import monotonic, time
 from typing import Any
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.sql import func
 
@@ -192,6 +192,7 @@ class HistoryWorker:
             return
 
         now = datetime.now(UTC)
+        configured_item_ids = {item.id for item in items}
         async with async_session_factory() as session, session.begin():
             for item in items:
                 effective = MarketStatus.RARE if item.status == MarketStatus.AUTO else item.status
@@ -228,6 +229,14 @@ class HistoryWorker:
                 await session.execute(
                     lot_statement.on_conflict_do_nothing(index_elements=[LotPollState.item_id])
                 )
+            await session.execute(
+                update(MarketItem)
+                .where(MarketItem.id.not_in(configured_item_ids))
+                .values(
+                    configured_status=int(MarketStatus.IGNORE),
+                    effective_status=int(MarketStatus.IGNORE),
+                )
+            )
 
     async def _claim_next_history(self) -> tuple[MarketItem, HistoryPollState] | None:
         now = datetime.now(UTC)
