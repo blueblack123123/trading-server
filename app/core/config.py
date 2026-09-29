@@ -28,9 +28,9 @@ class Settings(BaseSettings):
 
     history_page_size: int = 200
     history_incremental_max_pages: int = 10
-    history_live_requests_per_minute: int = 150
-    history_backfill_requests_per_minute: int = 30
-    history_backfill_max_requests_per_minute: int = 60
+    history_live_requests_per_minute: int = 120
+    history_backfill_requests_per_minute: int = 20
+    history_backfill_max_requests_per_minute: int = 30
     history_backfill_live_backlog_threshold: int = 5
     history_backfill_min_records: int = 5_000
     history_backfill_fraction: float = 1.0

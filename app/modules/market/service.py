@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 
+from app.modules.admin.schemas import MarketStatus
 from app.modules.history.models import AuctionLot, MarketItem, SaleAggregate
 from app.modules.history.repository import (
     UNKNOWN_QUALITY_KEY,
@@ -150,6 +151,8 @@ async def _read_active_lots(session: AsyncSession, now: datetime) -> list:
         )
         .join(MarketItem, MarketItem.id == AuctionLot.item_id)
         .where(
+            MarketItem.configured_status != int(MarketStatus.IGNORE),
+            MarketItem.effective_status != int(MarketStatus.IGNORE),
             AuctionLot.active.is_(True),
             AuctionLot.buyout_price > 0,
             AuctionLot.amount > 0,

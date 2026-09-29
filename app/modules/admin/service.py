@@ -58,7 +58,7 @@ class MarketItemsConfigService:
                 MarketItemConfig(
                     id=item_id,
                     name=item_name,
-                    status=old_item.status if old_item else MarketStatus.AUTO,
+                    status=old_item.status if old_item else MarketStatus.IGNORE,
                 )
             )
 
