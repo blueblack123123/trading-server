@@ -50,6 +50,10 @@ class Settings(BaseSettings):
     history_extremely_rare_interval_seconds: int = 604800
     history_worker_idle_seconds: float = 2.0
     lots_cache_ttl_seconds: int = 15
+    lots_collection_enabled: bool = True
+    lots_requests_per_minute: int = 20
+    lots_poll_interval_seconds: int = 3600
+    lots_page_size: int = 200
 
     craft_analysis_enabled: bool = True
     craft_analysis_interval_seconds: int = 3600

@@ -114,6 +114,50 @@ def test_parse_lots_page_returns_quality() -> None:
     assert records[0].quality == 2
 
 
+def test_collect_lot_snapshot_reads_pages_with_rate_limit() -> None:
+    client = AsyncMock()
+    client.get_available_lots.side_effect = [
+        {
+            "total": 2,
+            "lots": [
+                {
+                    "amount": 1,
+                    "startPrice": 10,
+                    "currentPrice": 10,
+                    "buyoutPrice": 100,
+                    "startTime": "2026-06-28T10:00:00Z",
+                    "endTime": "2026-06-29T10:00:00Z",
+                    "additional": {"qlt": 2},
+                }
+            ],
+        },
+        {
+            "total": 2,
+            "lots": [
+                {
+                    "amount": 2,
+                    "startPrice": 20,
+                    "currentPrice": 20,
+                    "buyoutPrice": 200,
+                    "startTime": "2026-06-28T11:00:00Z",
+                    "endTime": "2026-06-29T11:00:00Z",
+                    "additional": {"qlt": 3},
+                }
+            ],
+        },
+    ]
+    worker = HistoryWorker()
+    worker._acquire_lot_request = AsyncMock()  # type: ignore[method-assign]
+
+    records, total, complete = asyncio.run(worker._collect_lot_snapshot(client, "item-1"))
+
+    assert total == 2
+    assert complete is True
+    assert [record.amount for record in records] == [1, 2]
+    assert worker._acquire_lot_request.await_count == 2
+    assert [call.kwargs["offset"] for call in client.get_available_lots.await_args_list] == [0, 1]
+
+
 def test_extremely_rare_status_uses_weekly_interval() -> None:
     item = MarketItem(
         id="item-1",

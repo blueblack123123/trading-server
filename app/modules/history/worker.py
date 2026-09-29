@@ -24,6 +24,7 @@ from app.modules.history.repository import (
     prune_aggregates,
     replace_daily_aggregates,
     replace_hourly_aggregates,
+    store_lots,
     store_sales,
 )
 
@@ -59,6 +60,7 @@ class HistoryWorker:
         self._backfill_rate_limiter = UniformRateLimiter(
             settings.history_backfill_max_requests_per_minute
         )
+        self._lots_rate_limiter = UniformRateLimiter(settings.lots_requests_per_minute)
 
     async def run(self) -> None:
         logger.info(
@@ -80,6 +82,7 @@ class HistoryWorker:
         async with StalzoneClient() as client:
             await asyncio.gather(
                 self._run_live_collection(client),
+                self._run_lot_collection(client),
                 self._run_backfill_collection(client),
                 self._run_craft_analysis(),
             )
@@ -111,6 +114,18 @@ class HistoryWorker:
             item, start_offset = claimed
             await self._backfill_history(client, item, start_offset)
 
+    async def _run_lot_collection(self, client: StalzoneClient) -> None:
+        if not settings.lots_collection_enabled:
+            logger.info("Active lots collection is disabled")
+            return
+
+        while True:
+            claimed = await self._claim_next_lot()
+            if claimed is None:
+                await asyncio.sleep(settings.history_worker_idle_seconds)
+                continue
+            await self._poll_lots(client, *claimed)
+
     async def _run_craft_analysis(self) -> None:
         if not settings.craft_analysis_enabled:
             logger.info("Craft analysis worker is disabled")
@@ -140,6 +155,10 @@ class HistoryWorker:
     async def _acquire_backfill_request(self) -> None:
         rate = await self._select_backfill_rate()
         await self._backfill_rate_limiter.acquire_at_rate(rate)
+        await self._rate_limiter.acquire()
+
+    async def _acquire_lot_request(self) -> None:
+        await self._lots_rate_limiter.acquire()
         await self._rate_limiter.acquire()
 
     async def _select_backfill_rate(self) -> int:
@@ -236,6 +255,32 @@ class HistoryWorker:
             state.next_poll_at = now + timedelta(minutes=5)
             return item, state
 
+    async def _claim_next_lot(self) -> tuple[MarketItem, LotPollState] | None:
+        now = datetime.now(UTC)
+        async with async_session_factory() as session, session.begin():
+            statement = (
+                select(MarketItem, LotPollState)
+                .join(LotPollState, LotPollState.item_id == MarketItem.id)
+                .where(
+                    MarketItem.configured_status != int(MarketStatus.IGNORE),
+                    MarketItem.effective_status != int(MarketStatus.IGNORE),
+                    LotPollState.next_poll_at <= now,
+                )
+                .order_by(
+                    LotPollState.next_poll_at,
+                    MarketItem.effective_status,
+                    MarketItem.id,
+                )
+                .limit(1)
+                .with_for_update(skip_locked=True)
+            )
+            row = (await session.execute(statement)).first()
+            if row is None:
+                return None
+            item, state = row
+            state.next_poll_at = now + timedelta(minutes=5)
+            return item, state
+
     async def _claim_next_backfill(self) -> tuple[MarketItem, int] | None:
         now = datetime.now(UTC)
         async with async_session_factory() as session, session.begin():
@@ -302,6 +347,56 @@ class HistoryWorker:
         except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
             await self._save_history_error(item.id, None, 60)
             logger.exception("History poll failed for %s: %s", item.id, exc)
+
+    async def _poll_lots(
+        self,
+        client: StalzoneClient,
+        item: MarketItem,
+        _claimed_state: LotPollState,
+    ) -> None:
+        try:
+            records, total, complete = await self._collect_lot_snapshot(client, item.id)
+            await self._save_lots_success(item.id, records, total, complete)
+        except httpx.HTTPStatusError as exc:
+            await self._save_lots_error(
+                item.id,
+                exc.response.status_code,
+                _retry_after_seconds(exc.response),
+            )
+            logger.warning(
+                "Lots request failed for %s: HTTP %s",
+                item.id,
+                exc.response.status_code,
+            )
+        except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
+            await self._save_lots_error(item.id, None, 60)
+            logger.exception("Lots poll failed for %s: %s", item.id, exc)
+
+    async def _collect_lot_snapshot(
+        self,
+        client: StalzoneClient,
+        item_id: str,
+    ) -> tuple[list[LotRecord], int, bool]:
+        records_by_fingerprint: dict[str, LotRecord] = {}
+        offset = 0
+        total = 0
+        while offset < total or offset == 0:
+            await self._acquire_lot_request()
+            payload = await client.get_available_lots(
+                item_id=item_id,
+                limit=settings.lots_page_size,
+                offset=offset,
+            )
+            page, total = _parse_lots_page(item_id, payload)
+            records_by_fingerprint.update((record.fingerprint, record) for record in page)
+            offset += len(page)
+            if offset >= total:
+                break
+            if not page:
+                raise RuntimeError("Stalzone API returned an incomplete lots listing")
+        if len(records_by_fingerprint) != total:
+            raise RuntimeError("Stalzone API returned duplicate or incomplete lots")
+        return list(records_by_fingerprint.values()), total, True
 
     async def _classify_special_auto(
         self,
@@ -420,6 +515,46 @@ class HistoryWorker:
             len(records),
             inserted,
             MarketStatus(db_item.effective_status).name,
+            state.next_poll_at.isoformat(),
+        )
+
+    async def _save_lots_success(
+        self,
+        item_id: str,
+        records: list[LotRecord],
+        total: int,
+        complete: bool,
+    ) -> None:
+        now = datetime.now(UTC)
+        async with async_session_factory() as session, session.begin():
+            state = await session.get(LotPollState, item_id, with_for_update=True)
+            if state is None:
+                state = LotPollState(item_id=item_id, next_poll_at=now)
+                session.add(state)
+                await session.flush()
+            inserted, disappeared = await store_lots(
+                session,
+                item_id,
+                records,
+                now,
+                state.last_success_at,
+                complete,
+            )
+            state.last_polled_at = now
+            state.last_success_at = now
+            state.last_http_status = 200
+            state.consecutive_errors = 0
+            state.total_lots = total
+            state.snapshot_complete = complete
+            state.next_poll_at = now + timedelta(seconds=settings.lots_poll_interval_seconds)
+
+        logger.info(
+            "Polled lots %s: total=%s active=%s inserted=%s disappeared=%s next=%s",
+            item_id,
+            total,
+            len(records),
+            inserted,
+            disappeared,
             state.next_poll_at.isoformat(),
         )
 
@@ -559,6 +694,23 @@ class HistoryWorker:
         now = datetime.now(UTC)
         async with async_session_factory() as session, session.begin():
             state = await session.get(HistoryPollState, item_id, with_for_update=True)
+            if state is None:
+                return
+            state.last_polled_at = now
+            state.last_http_status = http_status
+            state.consecutive_errors += 1
+            backoff = max(retry_after_seconds, min(3600, 60 * 2**state.consecutive_errors))
+            state.next_poll_at = now + timedelta(seconds=backoff)
+
+    async def _save_lots_error(
+        self,
+        item_id: str,
+        http_status: int | None,
+        retry_after_seconds: int,
+    ) -> None:
+        now = datetime.now(UTC)
+        async with async_session_factory() as session, session.begin():
+            state = await session.get(LotPollState, item_id, with_for_update=True)
             if state is None:
                 return
             state.last_polled_at = now
